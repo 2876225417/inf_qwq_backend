@@ -7,7 +7,9 @@ BUILD_TYPE="Release"    # 构建类型：Debug, Release, RelWithDebInfo, MinSize
 INSTALL_PREFIX="${SCRIPT_DIR}/clang"  # 安装目录
 BUILD_DIR="${SCRIPT_DIR}/llvm-build"  # 构建目录
 SOURCE_DIR="${SCRIPT_DIR}/llvm-project"  # 源码目录
-JOBS=$(nproc || sysctl -n hw.ncpu || echo 4)  # 并行构建数量
+#JOBS=$(nproc || sysctl -n hw.ncpu || echo 4)  # 并行构建数量
+
+JOBS=8
 
 # 颜色输出
 RED='\033[0;31m'
