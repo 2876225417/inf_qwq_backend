@@ -8,6 +8,7 @@ FILE(GLOB HTTP_TEMPLATE ${CMAKE_SOURCE_DIR}/include/http/*.hpp)
 
 FILE(GLOB API_RESOLVER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/api_resolver/*.cpp)
 FILE(GLOB DB_UTILS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/db_utils/*.cpp)
+FILE(GLOB CONNECTION_SRC ${CMAKE_CURRENT_SOURCE_DIR}/connection/*.cpp)
 FILE(GLOB SERVER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/server/*.cpp)
 FILE(GLOB CURRENT_DIR_SRC ${CMAKE_CURRENT_SOURCE_DIR}/*.cp)
 
@@ -22,5 +23,5 @@ add_library(http
 
 target_link_libraries(http
     PRIVATE
-
+    Boost::boost 
 )
