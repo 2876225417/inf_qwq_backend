@@ -9,10 +9,12 @@
 
 
 
+#include "database/db_ops.hpp"
 #include <http/http_connection.h>
 #include <http/http_server.h>
 
 #include <database/db_conn.h>
+#include <iostream>
 
 
 
@@ -28,6 +30,18 @@ int main(int argc, char* argv[])
     config.password = "20041025";
 
     pg_sql_conn conn(config);
+
+
+    if (!table_exists(conn, "users")) {
+        execute_non_query(conn, 
+            "CREATE TABLE users ("
+            "id SERIAL PRIMARY KEY, "
+            "name VARCHAR(100) NOT NULL, "
+            "email VARCHAR(100) UNIQUE NOT NULL)"
+                          );
+
+        std::cout << "Created users table " << std::endl;
+    }
 
     using namespace inf_qwq::http;
     try
