@@ -10,4 +10,9 @@ add_subdirectory(database)
 add_executable(inf_qwq_backend main.cpp)
 
 
-target_link_libraries(inf_qwq_backend PRIVATE Boost::boost)
+target_link_libraries(inf_qwq_backend 
+    PRIVATE 
+    db
+    Boost::boost
+)
+

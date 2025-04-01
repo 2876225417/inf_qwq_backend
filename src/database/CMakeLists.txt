@@ -13,6 +13,6 @@ add_library(db
     ${DB_SOURCE}
 )
 
-target_link_libraries(db PRIVATE pqxx)
+target_link_libraries(db PUBLIC pqxx)
 
 

@@ -12,10 +12,23 @@
 #include <http/http_connection.h>
 #include <http/http_server.h>
 
+#include <database/db_conn.h>
+
 
 
 int main(int argc, char* argv[])
 {
+    using namespace inf_qwq::database::pg_sql;
+
+    conn_config config;
+    config.host = "localhost";
+    config.port = 5432;
+    config.db_name = "inf_qwq";
+    config.user = "ppqwqqq";
+    config.password = "20041025";
+
+    pg_sql_conn conn(config);
+
     using namespace inf_qwq::http;
     try
     {
