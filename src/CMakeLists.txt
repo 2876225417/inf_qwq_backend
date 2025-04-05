@@ -6,6 +6,7 @@ find_package(Boost REQUIRED)
 add_subdirectory(inferer)
 add_subdirectory(http)
 add_subdirectory(database)
+add_subdirectory(utils)
 
 add_executable(inf_qwq_backend main.cpp)
 

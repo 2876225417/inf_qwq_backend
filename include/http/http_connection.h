@@ -8,17 +8,13 @@
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/http/file_body_fwd.hpp>
 #include <boost/beast/http/message_fwd.hpp>
+#include <boost/beast/http/status.hpp>
 #include <boost/beast/http/string_body_fwd.hpp>
 #include <boost/beast/http/verb.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/asio.hpp>
 #include <boost/core/ignore_unused.hpp>
-
-
-
 #include <iostream>
-
-
 
 namespace inf_qwq {
     namespace http {
@@ -63,6 +59,9 @@ namespace inf_qwq {
                         m_response.set(http::field::server, "Beast");
                         create_response();
                         break;
+                    case http::verb::post:
+                        handle_post();
+                        break;
                     default:
                         m_response.result(http::status::bad_request);
                         m_response.set(http::field::content_type, "text/plain");
@@ -73,7 +72,21 @@ namespace inf_qwq {
                 
                 }
                     write_response();
+            }
 
+            void handle_post() {
+                m_response.result(http::status::ok);
+                m_response.set(http::field::server, "Beast");
+                m_response.set(http::field::content_type, "text/plain");
+
+                if (m_request.target() == "/submit") {
+                    std::string body = m_request.body();
+                    m_response.body() = "Received POST data: " + body;
+                    std::cout << m_response.body();
+                } else {
+                    m_response.result(http::status::not_found);
+                    m_response.body() = "POST endpoint not found\r\n";
+                }
             }
 
             void create_response() { 
