@@ -83,6 +83,10 @@ namespace inf_qwq {
                     std::string body = m_request.body();
                     m_response.body() = "Received POST data: " + body;
                     std::cout << m_response.body();
+                } else if (m_request.target() == "/inf_qwq/update_cropped_coords") {
+                    std::string body = m_request.body();
+                    m_response.body() = "Received updated_cropped_coords data: " + body;
+                    std::cout << "POST to /inf_qwq/update_cropped_coords: " << body << std::endl;
                 } else {
                     m_response.result(http::status::not_found);
                     m_response.body() = "POST endpoint not found\r\n";
