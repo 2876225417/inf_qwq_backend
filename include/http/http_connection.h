@@ -191,8 +191,6 @@ namespace inf_qwq {
                         
                         std::cerr << "Error: " << e.what() << std::endl;
                     } 
-
-
                 } else {
                     m_response.result(http::status::not_found);
                     m_response.body() = "POST endpoint not found\r\n";

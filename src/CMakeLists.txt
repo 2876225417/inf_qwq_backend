@@ -11,9 +11,16 @@ add_subdirectory(utils)
 add_executable(inf_qwq_backend main.cpp)
 
 
+target_include_directories(inf_qwq_backend
+    PUBLIC
+    ${OpenCV_INCLUDE_DIRS}
+
+)
+
 target_link_libraries(inf_qwq_backend 
     PRIVATE 
     db
     Boost::boost
+    ${OpenCV_LIBS}
 )
 

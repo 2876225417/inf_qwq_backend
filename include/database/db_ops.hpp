@@ -7,6 +7,7 @@
 #include <exception>
 #include <pqxx/internal/statement_parameters.hxx>
 
+
 namespace inf_qwq {
     namespace database {
         namespace pg_sql {

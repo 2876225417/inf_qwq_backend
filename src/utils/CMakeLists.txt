@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
 
-find_package(OpenCV REQUIRED)
 
 FILE(GLOB UTILS_HEADER ${CMAKE_SOURCE_DIR}/include/utils/*.h)
 FILE(GLOB UTILS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
