@@ -10,6 +10,7 @@
 
 
 #include "database/db_ops.hpp"
+#include <cstdlib>
 #include <http/http_connection.h>
 #include <http/http_server.h>
 
@@ -29,11 +30,18 @@ int main(int argc, char* argv[])
     config.user = "ppqwqqq";
     config.password = "20041025";
 
-    pg_sql_conn conn(config);
+    //pg_sql_conn conn(config);
+    
+    auto& db = pg_sql_conn::get_instance(config);
 
 
-    if (!table_exists(conn, "users")) {
-        execute_non_query(conn, 
+    if (!db.is_initialized()) {
+        std::cerr << "Failed to initialize database connection" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    if (!table_exists("users")) {
+        execute_non_query( 
             "CREATE TABLE users ("
             "id SERIAL PRIMARY KEY, "
             "name VARCHAR(100) NOT NULL, "

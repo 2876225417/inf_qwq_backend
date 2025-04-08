@@ -11,8 +11,11 @@ namespace inf_qwq {
     namespace database {
         namespace pg_sql {
             inline int 
-            execute_non_query(pg_sql_conn& conn, const std::string& sql) {
+            execute_non_query(const std::string& sql) {
                 try {
+                    auto& conn = pg_sql_conn::get_instance();      
+                    if (!conn.is_initialized()) 
+                        throw pg_sql_exception("Database connection not initialized");
                     pqxx::work txn(conn.get_conn());
                     pqxx::result result = txn.exec(sql);
                     txn.commit();
@@ -26,8 +29,11 @@ namespace inf_qwq {
             }
 
             inline pqxx::result 
-            execute_query(pg_sql_conn& conn, const std::string& sql) {
+            execute_query(const std::string& sql) {
                 try {
+                    auto& conn = pg_sql_conn::get_instance();
+                    if (!conn.is_initialized()) 
+                        throw pg_sql_exception("Database connection not initialized");
                     pqxx::work txn(conn.get_conn());
                     pqxx::result result = txn.exec(sql);
                     txn.commit();
@@ -42,11 +48,14 @@ namespace inf_qwq {
 
             template <typename... Args>
             inline pqxx::result
-            execute_params( pg_sql_conn& conn
-                          , const std::string& sql
+            execute_params( const std::string& sql
                           , Args&&... args
                           ) {
                 try {
+                    auto& conn = pg_sql_conn::get_instance();
+                    if (!conn.is_initialized()) 
+                        throw pg_sql_exception("Database connection not initialized");
+
                     pqxx::work txn(conn.get_conn());
                     pqxx::result result = txn.exec_params(sql, std::forward<Args>(args)...);
                     txn.commit();
@@ -60,10 +69,13 @@ namespace inf_qwq {
             }
 
             inline void              
-            execute_transaction( pg_sql_conn& conn
-                               , const std::function<void(pqxx::work&)>& transaction_func
+            execute_transaction( const std::function<void(pqxx::work&)>& transaction_func
                                ) {
                 try {
+                    auto& conn = pg_sql_conn::get_instance();
+                    if (!conn.is_initialized()) 
+                        throw pg_sql_exception("Database connection not initialized");
+            
                     pqxx::work txn(conn.get_conn());
                     transaction_func(txn);
                     txn.commit();
@@ -77,12 +89,15 @@ namespace inf_qwq {
             
             template <typename Container>
             inline int 
-            batch_insert( pg_sql_conn& conn
-                        , const std::string& table
+            batch_insert( const std::string& table
                         , const std::vector<std::string>& columns
                         , const Container& data
                         ) {
                 try {
+                    auto& conn = pg_sql_conn::get_instance();
+                    if (!conn.is_initialized()) 
+                        throw pg_sql_exception("Database connection not initialized");
+
                     pqxx::work txn(conn.get_conn());
 
                     std::string column_list;
@@ -99,7 +114,7 @@ namespace inf_qwq {
                     
                     std::string insert_sql = "INSERT INTO " + txn.quote_name(table)
                                            + " (" + column_list +") VALUES (" + placeholders + ")";
-                    int affected_rows;
+                    int affected_rows = 0;
                     
                     for (const auto& row: data) {
                         pqxx::result r = txn.exec_params(insert_sql, row);
@@ -117,8 +132,12 @@ namespace inf_qwq {
             }
 
             inline bool
-            table_exists(pg_sql_conn& conn, const std::string& table_name) {
+            table_exists(const std::string& table_name) {
                 try {
+                    auto& conn = pg_sql_conn::get_instance();
+                    if (!conn.is_initialized()) 
+                        throw pg_sql_exception("Database connection not initialized");
+            
                     pqxx::work txn{conn.get_conn()};
                     pqxx::result result = txn.exec(
                         "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
@@ -133,8 +152,12 @@ namespace inf_qwq {
 
             template <typename T>
             inline T
-            get_scalar(pg_sql_conn& conn, const std::string& sql) {
+            get_scalar(const std::string& sql) {
                 try {
+                    auto& conn = pg_sql_conn::get_instance();
+                    if (!conn.is_initialized()) 
+                        throw pg_sql_exception("Database connection not initialized");
+            
                     pqxx::work txn(conn.get_conn());
                     pqxx::row row = txn.exec1(sql);
                     txn.commit();
