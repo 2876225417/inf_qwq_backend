@@ -191,6 +191,91 @@ namespace inf_qwq {
                         
                         std::cerr << "Error: " << e.what() << std::endl;
                     } 
+                } else if (m_request.target() == "/inf_qwq/update_cropped_coords"){
+                    try {
+                        std::string body = m_request.body();
+                        std::cout << "Post to /inf_qwq/update_cropped_coords: " << body << std::endl;
+                        
+                        auto json = nlohmann::json::parse(body);
+
+                        int rtsp_id = json["rtsp_id"];
+                        float x = json["x"];
+                        float y = json["y"];
+                        float dx = json["dx"];
+                        float dy = json["dy"];
+
+                        std::string check_sql = "SELECT rtsp_id FROM rtsp_stream_info WHERE rtsp_id = $1";
+                        pqxx::result check_result = execute_params(check_sql, rtsp_id);
+
+                        if (check_sql.empty()) {
+                            nlohmann::json error_json;
+                            error_json["success"] = false;
+                            error_json["error"] = "RTSP ID not found";
+                            error_json["message"] = "No RTSP source exists with the provided ID";
+                            
+
+                            m_response.result(http::status::not_found); // 404 NOT FOUND
+                            m_response.set(http::field::content_type, "application/json");
+                            m_response.body() = error_json.dump();
+
+                            std::cout << "RTSP ID not found: " << rtsp_id << std::endl;
+                        } else {
+                            std::string update_sql =
+                                "UPDATE rtsp_stream_info "
+                                "SET rtsp_crop_coord_x = $1, rtsp_crop_coord_y = $2, "
+                                "rtsp_crop_coord_dx = $3, rtsp_crop_coord_dy = $4 "
+                                "WHERE rtsp_id = $5";
+
+                            execute_params(update_sql, x, y, dx, dy);
+                            
+                            nlohmann::json  response_json;
+                            response_json["success"] = true;
+                            response_json["rtsp_id"] = rtsp_id;
+                            response_json["message"] = "Cropped coordinates updated successfully";
+                            
+                            m_response.result(http::status::ok);
+                            m_response.set(http::field::content_type, "application/json");
+                            m_response.body() = response_json.dump();
+                            
+                            std::cout << "Updated cropped coordinates for RTSP ID: " << rtsp_id
+                                      << " [x="  << x 
+                                      << ", y="  << y 
+                                      << ", dx=" << dx 
+                                      << ", dy=" << dy 
+                                      << "]"     << std::endl;
+                    
+                        } 
+                    } catch (const nlohmann::json::exception& e) {
+                        nlohmann::json error_json;
+                        error_json["success"] = false;
+                        error_json["error"] = "Invalid Json format: " + std::string(e.what());
+                        
+                        m_response.result(http::status::bad_request);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+
+                        std::cerr << "JSON parsing error: " << e.what() << std::endl;
+                    } catch (const pg_sql_exception& e) {
+                        nlohmann::json error_json;
+                        error_json["success"] = false;
+                        error_json["error"] = "Database error: " + std::string(e.what());
+                        
+                        m_response.result(http::status::internal_server_error);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+                        
+                        std::cerr << "Database error: " << e.what() << std::endl;
+                    } catch (const std::exception& e) {
+                        nlohmann::json error_json;
+                        error_json["success"] = false;
+                        error_json["error"] = "Error: " + std::string(e.what());
+                        
+                        m_response.result(http::status::internal_server_error);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+
+                        std::cerr << "Error: " << e.what() << std::endl;
+                    }  
                 } else {
                     m_response.result(http::status::not_found);
                     m_response.body() = "POST endpoint not found\r\n";

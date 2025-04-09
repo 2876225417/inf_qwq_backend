@@ -31,66 +31,66 @@ int main(int argc, char* argv[])
     // k_rtsp_capturer.set_frame_callback([](cv::Mat mat) {
     //     cv::imshow("rtsp", mat);  
     // });
-    k_rtsp_capturer.set_frame_callback([](cv::Mat mat) { });
-    k_rtsp_capturer.set_error_callback([](std::string str) { });
+    // k_rtsp_capturer.set_frame_callback([](cv::Mat mat) { });
+    // k_rtsp_capturer.set_error_callback([](std::string str) { });
+    //
+    // k_rtsp_capturer.switch_rtsp_stream("rtsp://localhost:8554/cam");
 
-    k_rtsp_capturer.switch_rtsp_stream("rtsp://localhost:8554/cam");
+    conn_config config;
+    config.host = "localhost";
+    config.port = 5432;
+    config.db_name = "inf_qwq";
+    config.user = "ppqwqqq";
+    config.password = "20041025";
 
-    // conn_config config;
-    // config.host = "localhost";
-    // config.port = 5432;
-    // config.db_name = "inf_qwq";
-    // config.user = "ppqwqqq";
-    // config.password = "20041025";
-    //
-    // //pg_sql_conn conn(config);
-    // 
-    // auto& db = pg_sql_conn::get_instance(config);
-    //
-    //
-    // if (!db.is_initialized()) {
-    //     std::cerr << "Failed to initialize database connection" << std::endl;
-    //     return EXIT_FAILURE;
-    // }
-    //
-    // if (!table_exists("users")) {
-    //     execute_non_query( 
-    //         "CREATE TABLE users ("
-    //         "id SERIAL PRIMARY KEY, "
-    //         "name VARCHAR(100) NOT NULL, "
-    //         "email VARCHAR(100) UNIQUE NOT NULL)"
-    //                       );
-    //
-    //     std::cout << "Created users table " << std::endl;
-    // }
-    //
-    // using namespace inf_qwq::http;
-    // try
-    // {
-    //     if (argc != 3)
-    //     {
-    //         std::cerr << "Usage: http-server-sync <address> <port>\n";
-    //         std::cerr << "Example:\n";
-    //         std::cerr << "    http-server-sync 0.0.0.0 8080\n";
-    //         return EXIT_FAILURE;
-    //     }
-    //
-    //     auto const address = net::ip::make_address(argv[1]);
-    //     unsigned short port = static_cast<unsigned short>(std::atoi(argv[2]));
-    //
-    //     net::io_context ioc{1};
-    //
-    //     http_server server{ioc, {address, port}};
-    //     server.run();
-    //
-    //     ioc.run();
-    // }
-    // catch (const std::exception& e)
-    // {
-    //     std::cerr << "Error: " << e.what() << std::endl;
-    //     return EXIT_FAILURE;
-    // }
-    //
+    //pg_sql_conn conn(config);
+
+    auto& db = pg_sql_conn::get_instance(config);
+
+
+    if (!db.is_initialized()) {
+        std::cerr << "Failed to initialize database connection" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    if (!table_exists("users")) {
+        execute_non_query( 
+            "CREATE TABLE users ("
+            "id SERIAL PRIMARY KEY, "
+            "name VARCHAR(100) NOT NULL, "
+            "email VARCHAR(100) UNIQUE NOT NULL)"
+                          );
+
+        std::cout << "Created users table " << std::endl;
+    }
+
+    using namespace inf_qwq::http;
+    try
+    {
+        if (argc != 3)
+        {
+            std::cerr << "Usage: http-server-sync <address> <port>\n";
+            std::cerr << "Example:\n";
+            std::cerr << "    http-server-sync 0.0.0.0 8080\n";
+            return EXIT_FAILURE;
+        }
+
+        auto const address = net::ip::make_address(argv[1]);
+        unsigned short port = static_cast<unsigned short>(std::atoi(argv[2]));
+
+        net::io_context ioc{1};
+
+        http_server server{ioc, {address, port}};
+        server.run();
+
+        ioc.run();
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }
 
