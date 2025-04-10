@@ -18,6 +18,7 @@
 #include <iostream>
 
 #include <opencv2/highgui.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <utils/rtsp_capturer.h>
 
 int main(int argc, char* argv[])
@@ -25,16 +26,17 @@ int main(int argc, char* argv[])
     using namespace inf_qwq::database::pg_sql;
     using namespace inf_qwq::utils::rtsp; 
 
-    rtsp_capturer k_rtsp_capturer;
-     
-
+    // rtsp_capturer k_rtsp_capturer;
+    //  
     // k_rtsp_capturer.set_frame_callback([](cv::Mat mat) {
-    //     cv::imshow("rtsp", mat);  
+    //     cv::imwrite("rtsp", mat);  
     // });
-    // k_rtsp_capturer.set_frame_callback([](cv::Mat mat) { });
     // k_rtsp_capturer.set_error_callback([](std::string str) { });
     //
     // k_rtsp_capturer.switch_rtsp_stream("rtsp://localhost:8554/cam");
+    
+   
+
 
     conn_config config;
     config.host = "localhost";

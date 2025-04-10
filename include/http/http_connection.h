@@ -21,6 +21,7 @@
 #include <database/db_ops.hpp>
 
 #include <json.hpp>
+#include <opencv4/opencv2/core.hpp>
 #include <pqxx/internal/statement_parameters.hxx>
 
 namespace inf_qwq {
@@ -135,7 +136,7 @@ namespace inf_qwq {
                                 "rtsp_type, rtsp_username, rtsp_ip, rtsp_port, rtsp_channel, "
                                 "rtsp_subtype, rtsp_url, rtsp_name) "
                                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
-                                "RETURNING rtsp_ip";
+                                "RETURNING rtsp_id";
                         
                             pqxx::result result = execute_params( sql
                                                                 , json.value("rtsp_type", "")
@@ -286,7 +287,71 @@ namespace inf_qwq {
                 if (m_request.target() == "/hello") {
                     m_response.set(http::field::content_type, "text/plain");
                     m_response.body() = "Hello C++";
-                } else {
+                } else if (m_request.target() == "/inf_qwq/get_all_rtsp_sources") {
+                    try {
+                        std::cout << "GET request to /inf_qwq/get_all_rtsp_sources" << std::endl;
+                        
+                        std::string sql = 
+                            "SELECT rtsp_id, rtsp_type, rtsp_username, rtsp_ip, rtsp_port, "
+                            "rtsp_channel, rtsp_subtype, rtsp_url, rtsp_name, "
+                            "rtsp_crop_coord_x, rtsp_crop_coord_y, rtsp_crop_coord_dx, rtsp_crop_coord_dy "
+                            "FROM rtsp_stream_info "
+                            "ORDER BY rtsp_id";
+
+                        pqxx::result result = execute_query(sql);
+
+                        nlohmann::json response_json;
+                        response_json["success"] = true;
+                        response_json["rtsp_sources"] = nlohmann::json::array();
+
+                        for (const auto& row: result) {
+                            nlohmann::json source;
+                            
+                            source["rtsp_id"] = row["rtsp_id"].as<int>();
+                            source["rtsp_type"] = row["rtsp_type"].is_null() ? "" : row["rtsp_type"].as<std::string>();
+                            source["rtsp_username"] = row["rtsp_username"].as<std::string>();
+                            source["rtsp_ip"] = row["rtsp_port"].as<std::string>();
+                            source["rtsp_port"] = row["rtsp_port"].as<int>();
+                            source["rtsp_channel"] = row["rtsp_channel"].as<std::string>();
+                            source["rtsp_subtype"] = row["rtsp_subtype"].as<std::string>();
+                            source["rtsp_url"] = row["rtsp_url"].as<std::string>();
+                            source["rtsp_name"] = row["rtsp_name"].as<std::string>();
+
+                            if (!row["rtsp_crop_coord_x"].is_null()) source["rtsp_crop_coord_x"]   = row["rtsp_crop_coord_x"].as<float>();
+                            if (!row["rtsp_crop_coord_y"].is_null()) source["rtsp_crop_coord_y"]   = row["rtsp_crop_coord_y"].as<float>();
+                            if (!row["rtsp_crop_coord_dx"].is_null()) source["rtsp_crop_coord_dx"] = row["rtsp_crop_coord_dx"].as<float>();
+                            if (!row["rtsp_crop_coord_dy"].is_null()) source["rtsp_crop_coord_dy"] = row["rtsp_crop_coord_dy"].as<float>();
+
+                            response_json["rtsp_sources"].push_back(source);
+                        }
+
+                        m_response.result(http::status::ok);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = response_json.dump();
+
+                        std::cout << "Returned " << result.size() << " RTSP sources" << std::endl;         
+                    } catch (const pg_sql_exception& e) {
+                        nlohmann::json error_json;
+                        error_json["success"] = false;
+                        error_json["error"] = "Database error: " + std::string(e.what());
+                        
+                        m_response.result(http::status::internal_server_error);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+
+                        std::cerr << "Database error: " << e.what() << std::endl;
+                    } catch (const std::exception& e) {
+                        nlohmann::json error_json;
+                        error_json["success"] = false;
+                        error_json["error"] = "Error: " + std::string(e.what());
+                        
+                        m_response.result(http::status::internal_server_error);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+
+                        std::cerr << "Error: " << e.what() << std::endl;
+                    } 
+                }  else {
                     m_response.result(http::status::not_found);
                     m_response.set(http::field::content_type, "text/plain");
                     m_response.body() = "File not found\r\n" ;
