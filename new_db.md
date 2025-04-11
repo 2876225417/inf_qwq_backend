@@ -23,6 +23,24 @@ DB: PostgreSQL
 | rtsp_crop_coord_y  |                        | 裁剪 RTSP 流的坐标位置(x, y, dx, dy)百分比 dx(float) |
 | rtsp_crop_coord_dy |                        | 裁剪 RTSP 流的坐标位置(x, y, dx, dy)百分比 dy(float) |
 
+```sql
+CREATE TABLE rtsp_stream_info (
+    rtsp_id SERIAL PRIMARY KEY,
+    rtsp_type VARCHAR(50),
+    rtsp_username VARCHAR(50) NOT NULL,
+    rtsp_ip VARCHAR(50) NOT NULL,
+    rtsp_port INTEGER NOT NULL,
+    rtsp_channel VARCHAR(50) NOT NULL,
+    rtsp_subtype VARCHAR(50),
+    rtsp_url VARCHAR(255) NOT NULL,
+    rtsp_name VARCHAR(50) NOT NULL,
+    rtsp_crop_coord_x FLOAT,
+    rtsp_crop_coord_y FLOAT,
+    rtsp_crop_coord_dx FLOAT,
+    rtsp_crop_coord_dy FLOAT
+);
+```
+
 
 ## Inference Result 
 
