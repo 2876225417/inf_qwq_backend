@@ -3,7 +3,7 @@
 
 
 
-If occurs the issue:
+## If occurs the issue:
 ```sql
 [postgres@ppqwqqq ~]$ createuser --interactive --pwprompt
 输入要增加的角色名称: ppqwqqq
@@ -25,9 +25,15 @@ Follow these steps to fix it:
    `sudo -i -u postgres`
    `initdb -D '/var/lib/postgres/data'`
 
-
-
-
+## If occurs the issue:
 ```sql
+WARNING:  database "postgres" has a collation version mismatch
+描述:  The database was created using collation version 2.40, but the operating system provides version 2.41.
+提示:  Rebuild all objects in this database that use the default collation and run ALTER DATABASE postgres REFRESH COLLATION VERSION, or build PostgreSQL with the right library version.
+```
 
+Follow the step to fix it:
+1. Execute the sql: 
+```sql
+ALTER DATABASE postgres REFRESH COLLATION VERSION;
 ```

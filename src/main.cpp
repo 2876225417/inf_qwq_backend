@@ -72,7 +72,7 @@ int main(int argc, char* argv[])
         if (argc != 3)
         {
             std::cerr << "Usage: http-server-sync <address> <port>\n";
-            std::cerr << "Example:\n";
+           std::cerr << "Example:\n";
             std::cerr << "    http-server-sync 0.0.0.0 8080\n";
             return EXIT_FAILURE;
         }

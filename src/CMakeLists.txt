@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 
 find_package(Boost REQUIRED)
+find_package(OpenCV REQUIRED)
+
 
 add_subdirectory(inferer)
 add_subdirectory(http)

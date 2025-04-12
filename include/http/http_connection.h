@@ -135,7 +135,7 @@ namespace inf_qwq {
                                 "rtsp_type, rtsp_username, rtsp_ip, rtsp_port, rtsp_channel, "
                                 "rtsp_subtype, rtsp_url, rtsp_name) "
                                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
-                                "RETURNING rtsp_ip";
+                                "RETURNING rtsp_id";
                         
                             pqxx::result result = execute_params( sql
                                                                 , json.value("rtsp_type", "")
@@ -276,6 +276,16 @@ namespace inf_qwq {
 
                         std::cerr << "Error: " << e.what() << std::endl;
                     }  
+                } else {
+                    m_response.result(http::status::not_found);
+                    m_response.body() = "POST endpoint not found\r\n";
+                }
+            }
+
+            void create_response() { 
+                if (m_request.target() == "/hello") {
+                    m_response.set(http::field::content_type, "text/plain");
+                    m_response.body() = "Hello C++";
                 } else if (m_request.target() == "/inf_qwq/get_all_rtsp_sources") {
                     try {
                         std::cout << "GET request to /inf_qwq/get_all_rtsp_sources" << std::endl;
@@ -297,7 +307,7 @@ namespace inf_qwq {
                             nlohmann::json source;
                             
                             source["rtsp_id"] = row["rtsp_id"].as<int>();
-                            source["rtsp_type"] = row["rtsp_type"].is_null() ? "" : row["type_rtsp"].as<std::string>();
+                            source["rtsp_type"] = row["rtsp_type"].is_null() ? "" : row["rtsp_type"].as<std::string>();
                             source["rtsp_username"] = row["rtsp_username"].as<std::string>();
                             source["rtsp_ip"] = row["rtsp_port"].as<std::string>();
                             source["rtsp_port"] = row["rtsp_port"].as<int>();
@@ -319,23 +329,27 @@ namespace inf_qwq {
                         m_response.body() = response_json.dump();
 
                         std::cout << "Returned " << result.size() << " RTSP sources" << std::endl;         
-                    } catch () {
+                    } catch (const pg_sql_exception& e) {
+                        nlohmann::json error_json;
+                        error_json["success"] = false;
+                        error_json["error"] = "Database erro: " + std::string(e.what());
+                        
+                        m_response.result(http::status::internal_server_error);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
 
-                    } catch () {
-
-                    } catch () {
-
+                        std::cerr << "Database error: " << e.what() << std::endl;
+                    } catch (const std::exception& e) {
+                        nlohmann::json error_json;
+                        error_json["success"] = false;
+                        error_json["error"] = "Error: " + std::string(e.what());
+                    
+                        m_response.result(http::status::internal_server_error);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+                            
+                        std::cerr << "Error: " << e.what() << std::endl;
                     }
-                } else {
-                    m_response.result(http::status::not_found);
-                    m_response.body() = "POST endpoint not found\r\n";
-                }
-            }
-
-            void create_response() { 
-                if (m_request.target() == "/hello") {
-                    m_response.set(http::field::content_type, "text/plain");
-                    m_response.body() = "Hello C++";
                 } else {
                     m_response.result(http::status::not_found);
                     m_response.set(http::field::content_type, "text/plain");
