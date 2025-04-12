@@ -7,6 +7,7 @@
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/http/field.hpp>
+#include <boost/beast/http/fields_fwd.hpp>
 #include <boost/beast/http/file_body_fwd.hpp>
 #include <boost/beast/http/message_fwd.hpp>
 #include <boost/beast/http/status.hpp>
@@ -23,6 +24,8 @@
 #include <json.hpp>
 #include <pqxx/internal/statement_parameters.hxx>
 
+#include <chrono>
+
 namespace inf_qwq {
     namespace http {
         using json = nlohmann::json;
@@ -31,7 +34,15 @@ namespace inf_qwq {
         namespace http  = beast::http;
         namespace net   = boost::asio;
         using tcp       = boost::asio::ip::tcp;
-         
+        
+
+        static const auto server_start_time = std::chrono::steady_clock::now();
+
+        inline long get_server_uptime() {
+            auto now = std::chrono::steady_clock::now();
+            return std::chrono::duration_cast<std::chrono::seconds>(now - server_start_time).count();
+        }
+
         class http_connection: public std::enable_shared_from_this<http_connection> {
         public: http_connection(tcp::socket socket): m_socket(std::move(socket)) {}
         
@@ -92,10 +103,6 @@ namespace inf_qwq {
                     std::string body = m_request.body();
                     m_response.body() = "Received POST data: " + body;
                     std::cout << m_response.body();
-                } else if (m_request.target() == "/inf_qwq/update_cropped_coords") {
-                    std::string body = m_request.body();
-                    m_response.body() = "Received updated_cropped_coords data: " + body;
-                    std::cout << "POST to /inf_qwq/update_cropped_coords: " << body << std::endl;
                 } else if (m_request.target() == "/inf_qwq/add_rtsp_source") {
                     try {
                         std::string body = m_request.body();
@@ -226,7 +233,7 @@ namespace inf_qwq {
                                 "rtsp_crop_coord_dx = $3, rtsp_crop_coord_dy = $4 "
                                 "WHERE rtsp_id = $5";
 
-                            execute_params(update_sql, x, y, dx, dy);
+                            execute_params(update_sql, x, y, dx, dy, rtsp_id);
                             
                             nlohmann::json  response_json;
                             response_json["success"] = true;
@@ -349,6 +356,38 @@ namespace inf_qwq {
                         m_response.body() = error_json.dump();
                             
                         std::cerr << "Error: " << e.what() << std::endl;
+                    }
+                } else if(m_request.target() == "/inf_qwq/health") {
+                    try {
+                        bool database_connected = false;
+                        try {
+                            pqxx::result result = execute_query("SELECT 1");
+                            database_connected = !result.empty();
+                        } catch (const std::exception& e) {
+                            database_connected = false;
+                        }
+
+                        nlohmann::json response_json;
+                        response_json["status"] = "ok";
+                        response_json["timestamp"] = std::time(nullptr);
+                        response_json["service"] = "rtsp-monitor-server";
+                        response_json["database_connected"] = database_connected;
+
+                        m_response.result(http::status::ok);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = response_json.dump();
+
+                        std::cout << "Health check request processed" << std::endl;
+                    } catch (const std::exception& e) {
+                        nlohmann::json error_json;
+                        error_json["status"] = "error";
+                        error_json["error"] = "Error processing health check: " + std::string(e.what());
+                        
+                        m_response.result(http::status::internal_server_error);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+
+                        std::cerr << "Error during health check: " << e.what();
                     }
                 } else {
                     m_response.result(http::status::not_found);
