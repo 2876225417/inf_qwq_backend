@@ -2,6 +2,7 @@
 #define HTTP_CONNECTION_H
 
 #include "database/db_conn.h"
+#include "utils/rtsp_capturer.h"
 #include <boost/beast/core.hpp>
 #include <boost/beast/core/error.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
@@ -235,7 +236,9 @@ namespace inf_qwq {
 
                             execute_params(update_sql, x, y, dx, dy, rtsp_id);
                             
-                            nlohmann::json  response_json;
+                            inf_qwq::utils::rtsp::rtsp_capturer::instance().update_crop_coordinates(rtsp_id, x, y, dx,  dy);
+                            
+                            nlohmann::json response_json;
                             response_json["success"] = true;
                             response_json["rtsp_id"] = rtsp_id;
                             response_json["message"] = "Cropped coordinates updated successfully";

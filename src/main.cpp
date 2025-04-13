@@ -1,43 +1,68 @@
-
-/* INF_QWQ_BACKEND @CHUNHUI
- * @ Edited by ppQwQqq 
- * @ Powered by Boost
- * @ ChunHui Info
- *
- *
- * */
-
-
-
 #include "database/db_ops.hpp"
 #include <cstdlib>
 #include <http/http_connection.h>
 #include <http/http_server.h>
-
 #include <database/db_conn.h>
 #include <iostream>
-
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <utils/rtsp_capturer.h>
+#include <thread>
+#include <atomic>
+#include <csignal>
 
-int main(int argc, char* argv[])
-{
-    using namespace inf_qwq::database::pg_sql;
-    using namespace inf_qwq::utils::rtsp; 
+// 全局变量用于控制程序运行
+std::atomic<bool> g_running{true};
 
-    // rtsp_capturer k_rtsp_capturer;
-    //  
-    // k_rtsp_capturer.set_frame_callback([](cv::Mat mat) {
-    //     cv::imwrite("rtsp", mat);  
-    // });
-    // k_rtsp_capturer.set_error_callback([](std::string str) { });
-    //
-    // k_rtsp_capturer.switch_rtsp_stream("rtsp://localhost:8554/cam");
+// 信号处理函数
+void signal_handler(int signal) {
+    std::cout << "Received signal " << signal << ", shutting down..." << std::endl;
+    g_running = false;
+}
+
+// RTSP Capturer 运行函数
+void run_rtsp_capturer(const std::string& capture_dir) {
+    try {
+        auto& capturer = inf_qwq::utils::rtsp::rtsp_capturer::instance(capture_dir);
+
+        capturer.set_capture_interval(5);
+        capturer.set_max_queue_size(200);
+        capturer.set_save_to_disk(true);
+
+        std::cout << "Initializing RTSP capturer..." << std::endl;
+        capturer.initialize();
+        std::cout << "RTSP capturer initialized successfully" << std::endl;
+
+        // 主循环，定期处理和报告捕获的图像
+        while (g_running) {
+            // 获取最新的批次
+            inf_qwq::utils::rtsp::image_batch latest_batch;
+            if (capturer.get_latest_batch(latest_batch)) {
+                std::cout << "Latest batch contains " << latest_batch.images.size() << " images" << std::endl;
+                
+                // 可以在这里添加更多的批次处理逻辑
+            }
+            
+            // 等待一段时间再进行下一次处理
+            std::this_thread::sleep_for(std::chrono::seconds(30));
+        }
+        
+        std::cout << "RTSP capturer shutting down..." << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "RTSP capturer error: " << e.what() << std::endl;
+    }
+}
+
+int main(int argc, char* argv[]) {
+    // 设置信号处理
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
     
-   
+    using namespace inf_qwq::database::pg_sql;
+    using namespace inf_qwq::utils::rtsp;
 
-
+    // 数据库配置
     conn_config config;
     config.host = "localhost";
     config.port = 5432;
@@ -45,87 +70,75 @@ int main(int argc, char* argv[])
     config.user = "ppqwqqq";
     config.password = "20041025";
 
-    //pg_sql_conn conn(config);
+    try {
+        // 初始化数据库连接
+        auto& db = pg_sql_conn::get_instance(config);
 
-    auto& db = pg_sql_conn::get_instance(config);
-
-
-    if (!db.is_initialized()) {
-        std::cerr << "Failed to initialize database connection" << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    auto& capturer = inf_qwq::utils::rtsp::rtsp_capturer::instance("./captures");
-
-    capturer.set_capture_interval(5);
-    capturer.set_max_queue_size(200);
-    capturer.set_save_to_disk(true);
-
-    capturer.initialize();
-
- // 等待一段时间，让捕获器收集一些图像
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-    
-    // 获取最新的批次
-    inf_qwq::utils::rtsp::image_batch latest_batch;
-    if (capturer.get_latest_batch(latest_batch)) {
-        std::cout << "Latest batch contains " << latest_batch.images.size() << " images" << std::endl;
-        
-        // 处理批次中的图像
-        for (const auto& image : latest_batch.images) {
-            std::cout << "RTSP ID: " << image.rtsp_id 
-                      << ", Name: " << image.rtsp_name
-                      << ", Original size: " << image.original_image.size()
-                      << ", Cropped size: " << image.cropped_image.size()
-                      << std::endl;
+        if (!db.is_initialized()) {
+            std::cerr << "Failed to initialize database connection" << std::endl;
+            return EXIT_FAILURE;
         }
-    }
-    
-    // 弹出队首批次
-    inf_qwq::utils::rtsp::image_batch front_batch;
-    if (capturer.pop_front_batch(front_batch)) {
-        std::cout << "Popped front batch with " << front_batch.images.size() << " images" << std::endl;
-    }
-    
-    // 获取特定RTSP ID的最新图像
-    inf_qwq::utils::rtsp::captured_image specific_image;
-    if (capturer.get_latest_image(1, specific_image)) {
-        std::cout << "Latest image for RTSP ID 1: " 
-                  << "Original size: " << specific_image.original_image.size() 
-                  << ", Cropped size: " << specific_image.cropped_image.size() 
-                  << std::endl;
-    }
-    
-    // 主循环，保持程序运行
-    while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(60));
-    }
+        
+        std::cout << "Database connection initialized successfully" << std::endl;
 
-
-
-    using namespace inf_qwq::http;
-    try
-    {
-        if (argc != 3)
-        {
-            std::cerr << "Usage: http-server-sync <address> <port>\n";
-           std::cerr << "Example:\n";
-            std::cerr << "    http-server-sync 0.0.0.0 8080\n";
+        // 检查命令行参数
+        if (argc != 3) {
+            std::cerr << "Usage: " << argv[0] << " <address> <port>\n";
+            std::cerr << "Example:\n";
+            std::cerr << "    " << argv[0] << " 0.0.0.0 8080\n";
             return EXIT_FAILURE;
         }
 
-        auto const address = net::ip::make_address(argv[1]);
+        auto const address = inf_qwq::http::net::ip::make_address(argv[1]);
         unsigned short port = static_cast<unsigned short>(std::atoi(argv[2]));
 
-        net::io_context ioc{1};
+        // 启动RTSP捕获器线程
+        std::thread rtsp_thread(run_rtsp_capturer, "./captures");
+        
+        // 设置线程为分离状态，这样主线程结束时不会等待它
+        rtsp_thread.detach();
+        
+        std::cout << "RTSP capturer thread started" << std::endl;
 
-        http_server server{ioc, {address, port}};
+        // 启动HTTP服务器
+        inf_qwq::http::net::io_context ioc{1};
+        inf_qwq::http::http_server server{ioc, {address, port}};
+        
+        std::cout << "HTTP server starting on " << address << ":" << port << std::endl;
+        
+        // 启动服务器
         server.run();
+        
+        // 运行io_context
+        std::thread http_thread([&ioc]() {
+            try {
+                ioc.run();
+            }
+            catch (const std::exception& e) {
+                std::cerr << "HTTP server error: " << e.what() << std::endl;
+                g_running = false;
+            }
+        });
 
-        ioc.run();
+        std::cout << "HTTP server thread started" << std::endl;
+        
+        // 主线程等待退出信号
+        while (g_running) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        
+        // 停止HTTP服务器
+        std::cout << "Stopping HTTP server..." << std::endl;
+        ioc.stop();
+        
+        // 等待HTTP线程结束
+        if (http_thread.joinable()) {
+            http_thread.join();
+        }
+        
+        std::cout << "All services stopped. Exiting." << std::endl;
     }
-    catch (const std::exception& e)
-    {
+    catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return EXIT_FAILURE;
     }

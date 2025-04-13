@@ -1,4 +1,4 @@
 build
 boost-build
-3rdparty
+3rdparty/*
 .cache
