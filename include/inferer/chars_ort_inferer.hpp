@@ -14,8 +14,7 @@
 #include <string>
 #include <chrono>
 #include <iostream>
-#include <utils/ort_inf.hpp>
-
+#include <inferer/ort_inf.hpp>
 
 // 前向声明
 class ResultNotifier;

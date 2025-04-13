@@ -54,6 +54,10 @@ void run_rtsp_capturer(const std::string& capture_dir) {
     }
 }
 
+#include <inferer/chars_inferer.hpp>
+#include <inferer/ort_inf.hpp>
+
+
 int main(int argc, char* argv[]) {
     // 设置信号处理
     std::signal(SIGINT, signal_handler);
@@ -61,6 +65,8 @@ int main(int argc, char* argv[]) {
     
     using namespace inf_qwq::database::pg_sql;
     using namespace inf_qwq::utils::rtsp;
+    
+    chars_ort_inferer* ort_inferer = new chars_ort_inferer();
 
     // 数据库配置
     conn_config config;
