@@ -55,16 +55,53 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-    if (!table_exists("users")) {
-        execute_non_query( 
-            "CREATE TABLE users ("
-            "id SERIAL PRIMARY KEY, "
-            "name VARCHAR(100) NOT NULL, "
-            "email VARCHAR(100) UNIQUE NOT NULL)"
-                          );
+    auto& capturer = inf_qwq::utils::rtsp::rtsp_capturer::instance("./captures");
 
-        std::cout << "Created users table " << std::endl;
+    capturer.set_capture_interval(5);
+    capturer.set_max_queue_size(200);
+    capturer.set_save_to_disk(true);
+
+    capturer.initialize();
+
+ // 等待一段时间，让捕获器收集一些图像
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    
+    // 获取最新的批次
+    inf_qwq::utils::rtsp::image_batch latest_batch;
+    if (capturer.get_latest_batch(latest_batch)) {
+        std::cout << "Latest batch contains " << latest_batch.images.size() << " images" << std::endl;
+        
+        // 处理批次中的图像
+        for (const auto& image : latest_batch.images) {
+            std::cout << "RTSP ID: " << image.rtsp_id 
+                      << ", Name: " << image.rtsp_name
+                      << ", Original size: " << image.original_image.size()
+                      << ", Cropped size: " << image.cropped_image.size()
+                      << std::endl;
+        }
     }
+    
+    // 弹出队首批次
+    inf_qwq::utils::rtsp::image_batch front_batch;
+    if (capturer.pop_front_batch(front_batch)) {
+        std::cout << "Popped front batch with " << front_batch.images.size() << " images" << std::endl;
+    }
+    
+    // 获取特定RTSP ID的最新图像
+    inf_qwq::utils::rtsp::captured_image specific_image;
+    if (capturer.get_latest_image(1, specific_image)) {
+        std::cout << "Latest image for RTSP ID 1: " 
+                  << "Original size: " << specific_image.original_image.size() 
+                  << ", Cropped size: " << specific_image.cropped_image.size() 
+                  << std::endl;
+    }
+    
+    // 主循环，保持程序运行
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(60));
+    }
+
+
 
     using namespace inf_qwq::http;
     try
