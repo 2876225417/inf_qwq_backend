@@ -19,10 +19,11 @@ add_library(inferer
 target_include_directories(inferer
     PUBLIC
     ${ONNXRUNTIME_INCLUDE_DIR}
-
+    ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(inferer
     PRIVATE
     onnxruntime::onnxruntime 
+    ${OpenCV_LIBS}
 )

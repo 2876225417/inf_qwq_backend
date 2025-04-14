@@ -174,7 +174,7 @@ private:
     }
 
     void worker_thread(int thread_id) {
-        //std::cout << "Worker thread " << thread_id << " started" << std::endl;
+        std::cout << "Worker thread " << thread_id << " started" << std::endl;
 
         det_inferer* det = m_det_inferers[thread_id].get();
         rec_inferer* rec = m_rec_inferers[thread_id].get();
@@ -222,7 +222,7 @@ private:
             m_cond.notify_all();
         }
 
-        //std::cout << "Worker thread " << thread_id << " stopped" << std::endl;
+        std::cout << "Worker thread " << thread_id << " stopped" << std::endl;
     }
 };
 
@@ -251,8 +251,8 @@ private:
 // 字符识别推理器类
 class chars_ort_inferer {
 public:
-    chars_ort_inferer(const std::string& det_model_path = "det_server.onnx",
-                      const std::string& rec_model_path = "rec_server.onnx",
+    chars_ort_inferer(const std::string& det_model_path = "det_gen.onnx",
+                      const std::string& rec_model_path = "rec_gen.onnx",
                       int num_threads = 16)
     : m_processor{new TaskProcessor(num_threads, det_model_path, rec_model_path)}
     , m_notifier{new ResultNotifier()}
@@ -343,6 +343,11 @@ private:
             std::lock_guard<std::mutex> lock(m_callback_mutex);
             if (m_completion_callback) {
                 m_completion_callback(result.cam_id, result.texts);
+                std::cout << "cam id: " << result.cam_id  
+                          << "results: ";
+                for(auto& text_result: result.texts)
+                    std::cout << text_result << ' ';
+                std::cout << std::endl;
             }
             processed_count++;
         }

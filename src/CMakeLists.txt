@@ -15,7 +15,7 @@ add_executable(inf_qwq_backend main.cpp)
 target_include_directories(inf_qwq_backend
     PUBLIC
     ${OpenCV_INCLUDE_DIRS}
-
+    ${ONNXRUNTIME_INCLUDE_DIR}
 )
 
 target_link_libraries(inf_qwq_backend 
@@ -23,5 +23,6 @@ target_link_libraries(inf_qwq_backend
     db
     Boost::boost
     ${OpenCV_LIBS}
+    onnxruntime::onnxruntime
 )
 

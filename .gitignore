@@ -2,3 +2,5 @@ build
 boost-build
 3rdparty/*
 .cache
+OCR_models.tar.gz
+*_server.onnx

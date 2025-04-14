@@ -529,7 +529,7 @@ private:
 public:
     rec_inferer(const std::string& model_path = "rec_server.onnx")
         : common_inferer<cv::Mat, std::string>(model_path)
-        { load_chars("inf_src/classes/chars.txt"); }
+        { load_chars("chars.txt"); }
 
     std::string run_inf(cv::Mat& frame) { return infer(frame); }
     void set_char_dict(const std::string& char_dict_path) { }

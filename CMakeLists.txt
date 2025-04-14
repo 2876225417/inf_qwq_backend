@@ -11,6 +11,9 @@ include(cmake/DownloadONNXRuntime.cmake)
 download_onnxruntime()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
+find_package(ONNXRuntime REQUIRED)
+
+
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${ONNXRUNTIME_INCLUDE_DIR}
