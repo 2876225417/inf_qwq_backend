@@ -7,9 +7,15 @@ BUILD_TYPE="Release"    # 构建类型：Debug, Release, RelWithDebInfo, MinSize
 INSTALL_PREFIX="${SCRIPT_DIR}/clang"  # 安装目录
 BUILD_DIR="${SCRIPT_DIR}/llvm-build"  # 构建目录
 SOURCE_DIR="${SCRIPT_DIR}/llvm-project"  # 源码目录
-#JOBS=$(nproc || sysctl -n hw.ncpu || echo 4)  # 并行构建数量
 
-JOBS=8
+# 默认并行构建数量
+if command -v nproc &> /dev/null; then
+    JOBS=$(nproc)
+elif [ "$(uname)" == "Darwin" ] && command -v sysctl &> /dev/null; then
+    JOBS=$(sysctl -n hw.ncpu)
+else
+    JOBS=4
+fi
 
 # 颜色输出
 RED='\033[0;31m'
@@ -37,6 +43,53 @@ info() {
     echo -e "${CYAN}[INFO] $1${NC}"
 }
 
+# 检测当前系统架构
+detect_architecture() {
+    local arch=$(uname -m)
+    case "$arch" in
+        x86_64)
+            LLVM_TARGETS="X86"
+            ;;
+        aarch64|arm64)
+            LLVM_TARGETS="AArch64"
+            ;;
+        arm*)
+            LLVM_TARGETS="ARM"
+            ;;
+        *)
+            LLVM_TARGETS="X86;ARM;AArch64"
+            warn "未能识别的架构: $arch，将构建多架构支持"
+            ;;
+    esac
+    info "检测到架构: $arch，将构建支持: $LLVM_TARGETS"
+}
+
+# 检查可用内存并调整并行作业数
+check_memory_and_adjust_jobs() {
+    local mem_gb=0
+    
+    if command -v free &> /dev/null; then
+        mem_gb=$(free -g | awk '/^Mem:/{print $2}')
+    elif [ "$(uname)" == "Darwin" ] && command -v sysctl &> /dev/null; then
+        # macOS 下获取内存大小（以GB为单位）
+        mem_gb=$(($(sysctl -n hw.memsize) / 1024 / 1024 / 1024))
+    fi
+    
+    # 如果内存小于8GB，减少并行作业数
+    if [ "$mem_gb" -lt 8 ] && [ "$JOBS" -gt 2 ]; then
+        local old_jobs=$JOBS
+        JOBS=2
+        warn "系统内存较小 (${mem_gb}GB)，已将并行作业数从 $old_jobs 降低到 $JOBS"
+    fi
+    
+    # 如果内存较大，但作业数过多，适当调整
+    if [ "$mem_gb" -gt 0 ] && [ "$JOBS" -gt "$((mem_gb * 2))" ]; then
+        local old_jobs=$JOBS
+        JOBS=$((mem_gb * 2))
+        info "根据系统内存 (${mem_gb}GB) 调整并行作业数从 $old_jobs 到 $JOBS"
+    fi
+}
+
 # 检查必要工具并设置编译器
 check_prerequisites() {
     log "检查必要工具..."
@@ -44,7 +97,7 @@ check_prerequisites() {
     local missing_tools=()
     
     # 检查必要工具
-    for tool in git cmake python3 tar make; do
+    for tool in git cmake python3 make; do
         if ! command -v $tool &> /dev/null; then
             missing_tools+=($tool)
         fi
@@ -65,12 +118,14 @@ check_prerequisites() {
     
     # 检查编译器并设置优先级
     if command -v clang &> /dev/null && command -v clang++ &> /dev/null; then
-        log "找到 Clang: $(clang --version | head -n 1)"
+        local clang_version=$(clang --version | head -n 1)
+        log "找到 Clang: $clang_version"
         export CC=clang
         export CXX=clang++
         log "将使用 Clang 作为编译器"
     elif command -v gcc &> /dev/null && command -v g++ &> /dev/null; then
-        log "找到 GCC: $(gcc --version | head -n 1)"
+        local gcc_version=$(gcc --version | head -n 1)
+        log "找到 GCC: $gcc_version"
         export CC=gcc
         export CXX=g++
         log "将使用 GCC 作为编译器"
@@ -81,22 +136,18 @@ check_prerequisites() {
     # 检查系统资源
     log "检查系统资源..."
     
-    # 检查可用内存
-    if command -v free &> /dev/null; then
-        local mem_gb=$(free -g | awk '/^Mem:/{print $2}')
-        if [ "$mem_gb" -lt 8 ]; then
-            warn "系统内存小于 8GB (检测到 ${mem_gb}GB)，构建可能会失败或非常慢"
-        else
-            info "系统内存: ${mem_gb}GB"
-        fi
-    fi
+    # 检查可用内存并调整并行作业数
+    check_memory_and_adjust_jobs
     
     # 检查可用磁盘空间
-    local free_space_gb=$(df -BG "$SCRIPT_DIR" | awk 'NR==2 {gsub("G", "", $4); print $4}')
-    if [ "$free_space_gb" -lt 20 ]; then
-        warn "可用磁盘空间小于 20GB (检测到 ${free_space_gb}GB)，可能不足以完成构建"
-    else
-        info "可用磁盘空间: ${free_space_gb}GB"
+    local free_space_gb=0
+    if command -v df &> /dev/null; then
+        free_space_gb=$(df -BG "$SCRIPT_DIR" | awk 'NR==2 {gsub("G", "", $4); print $4}')
+        if [ "$free_space_gb" -lt 20 ]; then
+            warn "可用磁盘空间小于 20GB (检测到 ${free_space_gb}GB)，可能不足以完成构建"
+        else
+            info "可用磁盘空间: ${free_space_gb}GB"
+        fi
     fi
     
     # 显示并行作业数
@@ -137,12 +188,16 @@ configure_build() {
     # 清理旧的构建文件
     rm -f CMakeCache.txt
     
-    # 构建所有主要组件
+    # 确定构建项目
+    local projects="clang;clang-tools-extra;lld;lldb"
+    local runtimes="compiler-rt;libcxx;libcxxabi;libunwind;openmp"
+    
+    # 构建核心组件
     cmake $USE_NINJA -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
           -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
-          -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;lldb;mlir;flang;polly;bolt" \
-          -DLLVM_ENABLE_RUNTIMES="compiler-rt;libcxx;libcxxabi;libunwind;openmp;pstl" \
-          -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" \
+          -DLLVM_ENABLE_PROJECTS="$projects" \
+          -DLLVM_ENABLE_RUNTIMES="$runtimes" \
+          -DLLVM_TARGETS_TO_BUILD="$LLVM_TARGETS" \
           -DLLVM_ENABLE_ASSERTIONS=OFF \
           -DLLVM_BUILD_EXAMPLES=OFF \
           -DLLVM_INCLUDE_EXAMPLES=OFF \
@@ -157,7 +212,10 @@ configure_build() {
           -DLLVM_ENABLE_TERMINFO=ON \
           -DLLVM_ENABLE_LIBEDIT=ON \
           -DLLVM_PARALLEL_COMPILE_JOBS="$JOBS" \
-          -DLLVM_PARALLEL_LINK_JOBS="$JOBS" \
+          -DLLVM_PARALLEL_LINK_JOBS="$((JOBS / 2 > 0 ? JOBS / 2 : 1))" \
+          -DLLVM_OPTIMIZED_TABLEGEN=ON \
+          -DLLVM_USE_SPLIT_DWARF=ON \
+          -DLLVM_ENABLE_LTO=OFF \
           "$SOURCE_DIR/llvm" || error "CMake 配置失败"
           
     log "配置完成"
@@ -169,7 +227,7 @@ build_llvm() {
     cd "$BUILD_DIR"
     
     # 显示估计的构建时间
-    info "构建可能需要几个小时，请耐心等待..."
+    info "构建可能需要较长时间，请耐心等待..."
     
     # 记录开始时间
     local start_time=$(date +%s)
@@ -206,9 +264,18 @@ install_llvm() {
         "${INSTALL_PREFIX}/bin/clang" --version | head -n 1
     fi
     
-    log "要使用新安装的 Clang，请将以下路径添加到环境变量中:"
-    log "  PATH=\"${INSTALL_PREFIX}/bin:\$PATH\""
-    log "  LD_LIBRARY_PATH=\"${INSTALL_PREFIX}/lib:\$LD_LIBRARY_PATH\""
+    # 创建环境变量设置脚本
+    cat > "${INSTALL_PREFIX}/env.sh" << EOF
+#!/bin/bash
+export PATH="${INSTALL_PREFIX}/bin:\$PATH"
+export LD_LIBRARY_PATH="${INSTALL_PREFIX}/lib:\$LD_LIBRARY_PATH"
+export CPATH="${INSTALL_PREFIX}/include:\$CPATH"
+export MANPATH="${INSTALL_PREFIX}/share/man:\$MANPATH"
+EOF
+    chmod +x "${INSTALL_PREFIX}/env.sh"
+    
+    log "要使用新安装的 Clang，请运行:"
+    log "  source \"${INSTALL_PREFIX}/env.sh\""
 }
 
 # 清理函数
@@ -239,11 +306,16 @@ main() {
                 JOBS="${1#*=}"
                 shift
                 ;;
+            --prefix=*)
+                INSTALL_PREFIX="${1#*=}"
+                shift
+                ;;
             --help)
                 echo "用法: $0 [选项]"
                 echo "选项:"
                 echo "  --build-type=TYPE    指定构建类型: Debug, Release, RelWithDebInfo, MinSizeRel (默认: $BUILD_TYPE)"
-                echo "  --jobs=N             指定并行构建作业数量 (默认: 系统核心数)"
+                echo "  --jobs=N             指定并行构建作业数量 (默认: 自动检测)"
+                echo "  --prefix=PATH        指定安装路径 (默认: $INSTALL_PREFIX)"
                 echo "  --help               显示此帮助信息"
                 exit 0
                 ;;
@@ -253,11 +325,15 @@ main() {
         esac
     done
     
+    # 检测当前系统架构
+    detect_architecture
+    
     log "配置摘要:"
     log "- 构建类型: ${BUILD_TYPE}"
     log "- 安装路径: ${INSTALL_PREFIX}"
     log "- 构建目录: ${BUILD_DIR}"
     log "- 源码目录: ${SOURCE_DIR}"
+    log "- 目标架构: ${LLVM_TARGETS}"
     log "- 并行作业: ${JOBS}"
     
     # 检查是否已经安装

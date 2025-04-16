@@ -7,8 +7,15 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 project(inf_qwq_backend LANGUAGES CXX)
 
-include(cmake/DownloadONNXRuntime.cmake)
+include("${CMAKE_SOURCE_DIR}/cmake/DownloadONNXRuntime.cmake")
 download_onnxruntime()
+
+include("${CMAKE_SOURCE_DIR}/cmake/MySQLConnectorConfig.cmake")
+include("${CMAKE_SOURCE_DIR}/cmake/OpenCVConfig.cmake")
+include("${CMAKE_SOURCE_DIR}/cmake/BoostConfig.cmake")
+
+
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 find_package(ONNXRuntime REQUIRED)

@@ -306,12 +306,14 @@ namespace inf_qwq {
                 void capture_thread(int rtsp_id) {
                     stream_runtime* runtime = nullptr;
                     rtsp_stream_info* info = nullptr;
+                    std::string rtsp_url;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
                         if (m_streams.find(rtsp_id) == m_streams.end() || 
                             m_stream_infos.find(rtsp_id) == m_stream_infos.end()) return;
                         runtime = &m_streams[rtsp_id];
                         info = &m_stream_infos[rtsp_id];
+                        rtsp_url = info->rtsp_url;
                     }
 
                     auto last_capture_time = std::chrono::steady_clock::now();

@@ -11,8 +11,10 @@ INSTALL_PREFIX="${SCRIPT_DIR}/3rdparty/boost"
 BUILD_DIR="${SCRIPT_DIR}/boost-build"
 SOURCE_DIR="${BUILD_DIR}/source"
 JOBS=$(nproc || sysctl -n hw.ncpu || echo 4)  # 并行构建数量
-
-
+BUILD_SHARED="yes"  # 是否构建共享库
+BUILD_STATIC="yes"  # 是否构建静态库
+BUILD_TYPE="release"  # 构建类型: release, debug, profile
+COMPONENTS=""  # 指定要构建的组件，空表示全部构建
 
 # 颜色输出
 RED='\033[0;31m'
@@ -40,6 +42,33 @@ info() {
     echo -e "${CYAN}[INFO] $1${NC}"
 }
 
+# 检查系统资源并调整并行作业数
+check_resources() {
+    # 检查可用内存
+    local mem_gb=0
+    
+    if command -v free &> /dev/null; then
+        mem_gb=$(free -g | awk '/^Mem:/{print $2}')
+    elif [ "$(uname)" == "Darwin" ] && command -v sysctl &> /dev/null; then
+        # macOS 下获取内存大小（以GB为单位）
+        mem_gb=$(($(sysctl -n hw.memsize) / 1024 / 1024 / 1024))
+    fi
+    
+    # 如果内存小于4GB，减少并行作业数
+    if [ "$mem_gb" -lt 4 ] && [ "$JOBS" -gt 2 ]; then
+        local old_jobs=$JOBS
+        JOBS=2
+        warn "系统内存较小 (${mem_gb}GB)，已将并行作业数从 $old_jobs 降低到 $JOBS"
+    fi
+    
+    # 如果内存充足但作业数过多，适当调整
+    if [ "$mem_gb" -gt 0 ] && [ "$JOBS" -gt "$((mem_gb * 3))" ]; then
+        local old_jobs=$JOBS
+        JOBS=$((mem_gb * 3))
+        info "根据系统内存 (${mem_gb}GB) 调整并行作业数从 $old_jobs 到 $JOBS"
+    fi
+}
+
 # 检查必要工具
 check_prerequisites() {
     log "检查必要工具..."
@@ -47,11 +76,24 @@ check_prerequisites() {
     local missing_tools=()
     
     # 检查必要工具
-    for tool in wget curl tar make; do
+    for tool in tar make; do
         if ! command -v $tool &> /dev/null; then
             missing_tools+=($tool)
         fi
     done
+    
+    # 检查下载工具
+    local has_download_tool=false
+    for tool in wget curl; do
+        if command -v $tool &> /dev/null; then
+            has_download_tool=true
+            break
+        fi
+    done
+    
+    if [ "$has_download_tool" = false ]; then
+        missing_tools+=("wget or curl")
+    fi
     
     if [ ${#missing_tools[@]} -ne 0 ]; then
         error "缺少必要工具: ${missing_tools[*]}\n请先安装这些工具后再运行此脚本"
@@ -78,6 +120,9 @@ check_prerequisites() {
         export LD_LIBRARY_PATH="${SCRIPT_DIR}/clang/lib:$LD_LIBRARY_PATH"
         log "使用自定义 Clang 编译器: $(${CXX} --version | head -n 1)"
     fi
+    
+    # 检查系统资源并调整并行作业数
+    check_resources
     
     # 显示并行作业数
     info "将使用 $JOBS 个并行作业进行构建"
@@ -109,6 +154,11 @@ download_boost() {
         fi
     fi
     
+    # 验证下载的文件
+    if [ ! -f "${tar_file}" ] || [ ! -s "${tar_file}" ]; then
+        error "下载的文件无效或为空"
+    fi
+    
     # 解压源码
     log "解压 Boost 源码..."
     mkdir -p "${SOURCE_DIR}"
@@ -136,16 +186,53 @@ build_boost() {
         "-j${JOBS}"
         "install"
         "threading=multi"
-        "link=shared,static"
-        "runtime-link=shared"
-        "variant=release"
+        "variant=${BUILD_TYPE}"
         "--layout=tagged"
     )
+    
+    # 添加链接类型选项
+    local link_options=()
+    if [ "${BUILD_SHARED}" = "yes" ] && [ "${BUILD_STATIC}" = "yes" ]; then
+        link_options+=("link=shared,static")
+    elif [ "${BUILD_SHARED}" = "yes" ]; then
+        link_options+=("link=shared")
+    elif [ "${BUILD_STATIC}" = "yes" ]; then
+        link_options+=("link=static")
+    else
+        error "至少需要构建静态库或共享库"
+    fi
+    b2_options+=("${link_options[@]}")
+    
+    # 运行时链接选项
+    if [ "${BUILD_SHARED}" = "yes" ]; then
+        b2_options+=("runtime-link=shared")
+    else
+        b2_options+=("runtime-link=static")
+    fi
     
     # 检查是否使用 Clang
     if [[ "$CXX" == *"clang++"* ]]; then
         b2_options+=("toolset=clang")
         log "使用 Clang 工具链构建 Boost"
+    elif [[ "$CXX" == *"g++"* ]]; then
+        b2_options+=("toolset=gcc")
+        log "使用 GCC 工具链构建 Boost"
+    fi
+    
+    # 添加特定平台的优化
+    case "$(uname -s)" in
+        Linux*)
+            b2_options+=("cxxflags=-fPIC")
+            ;;
+        Darwin*)
+            b2_options+=("cxxflags=-fPIC -mmacosx-version-min=10.14")
+            ;;
+    esac
+    
+    # 添加特定组件构建
+    if [ -n "${COMPONENTS}" ]; then
+        log "仅构建以下组件: ${COMPONENTS}"
+        b2_options+=("--with-${COMPONENTS//,/ --with-}")
     fi
     
     # 记录开始时间
@@ -154,6 +241,7 @@ build_boost() {
     # 构建和安装
     log "开始构建 Boost (使用 $JOBS 个并行作业)..."
     info "构建可能需要一些时间，请耐心等待..."
+    info "构建选项: ${b2_options[*]}"
     ./b2 "${b2_options[@]}" || error "构建失败"
     
     # 计算构建时间
@@ -172,15 +260,47 @@ finish_install() {
     # 创建版本文件，便于后续检查
     echo "${BOOST_VERSION}" > "${INSTALL_PREFIX}/version.txt"
     
+    # 记录构建配置
+    cat > "${INSTALL_PREFIX}/build_config.txt" << EOF
+Boost 版本: ${BOOST_VERSION}
+构建日期: $(date '+%Y-%m-%d %H:%M:%S')
+构建类型: ${BUILD_TYPE}
+共享库: ${BUILD_SHARED}
+静态库: ${BUILD_STATIC}
+编译器: ${CXX}
+组件: ${COMPONENTS:-全部}
+EOF
+    
     # 显示安装的库
     log "已安装的 Boost 库:"
-    find "${INSTALL_PREFIX}/lib" -name "libboost_*.so" -o -name "libboost_*.a" | sed 's/.*libboost_\(.*\)\.so.*/\1/' | sort | uniq | tr '\n' ', '
+    local lib_pattern="libboost_*.so"
+    if [ "${BUILD_STATIC}" = "yes" ] && [ "${BUILD_SHARED}" != "yes" ]; then
+        lib_pattern="libboost_*.a"
+    fi
+    
+    find "${INSTALL_PREFIX}/lib" -name "${lib_pattern}" | sed 's/.*libboost_\(.*\)\..*/\1/' | sort | uniq | tr '\n' ', '
     echo ""
+    
+    # 创建环境变量设置脚本
+    cat > "${INSTALL_PREFIX}/env.sh" << EOF
+#!/bin/bash
+# Boost 环境配置脚本
+# 使用方法: source ${INSTALL_PREFIX}/env.sh
+
+export BOOST_ROOT="${INSTALL_PREFIX}"
+export CPATH="\${BOOST_ROOT}/include:\${CPATH}"
+export LIBRARY_PATH="\${BOOST_ROOT}/lib:\${LIBRARY_PATH}"
+export LD_LIBRARY_PATH="\${BOOST_ROOT}/lib:\${LD_LIBRARY_PATH}"
+
+echo "Boost ${BOOST_VERSION} 环境已设置"
+EOF
+    chmod +x "${INSTALL_PREFIX}/env.sh"
     
     log "要在 CMake 项目中使用 Boost，可以添加以下内容到 CMakeLists.txt:"
     echo "  set(BOOST_ROOT \"${INSTALL_PREFIX}\")"
     echo "  find_package(Boost REQUIRED COMPONENTS system filesystem ...)"
     echo "  target_link_libraries(your_target PRIVATE \${Boost_LIBRARIES})"
+    log "或者使用环境变量脚本: source ${INSTALL_PREFIX}/env.sh"
 }
 
 # 清理函数
@@ -196,6 +316,25 @@ cleanup() {
     fi
 }
 
+# 帮助函数
+show_help() {
+    echo "Boost 构建脚本"
+    echo "用法: $0 [选项]"
+    echo "选项:"
+    echo "  --version=VERSION    指定 Boost 版本 (默认: ${BOOST_VERSION})"
+    echo "  --prefix=PATH        指定安装路径 (默认: ${INSTALL_PREFIX})"
+    echo "  --jobs=N             指定并行构建作业数量 (默认: 系统核心数)"
+    echo "  --shared=yes|no      是否构建共享库 (默认: yes)"
+    echo "  --static=yes|no      是否构建静态库 (默认: yes)"
+    echo "  --type=TYPE          构建类型: release, debug, profile (默认: release)"
+    echo "  --components=LIST    指定要构建的组件，逗号分隔 (默认: 全部)"
+    echo "  --help               显示此帮助信息"
+    echo
+    echo "示例:"
+    echo "  $0 --version=1.87.0 --shared=yes --static=no --components=system,filesystem,thread"
+    exit 0
+}
+
 # 主函数
 main() {
     log "开始构建 Boost ${BOOST_VERSION}..."
@@ -207,17 +346,32 @@ main() {
                 BOOST_VERSION="${1#*=}"
                 shift
                 ;;
+            --prefix=*)
+                INSTALL_PREFIX="${1#*=}"
+                shift
+                ;;
             --jobs=*)
                 JOBS="${1#*=}"
                 shift
                 ;;
+            --shared=*)
+                BUILD_SHARED="${1#*=}"
+                shift
+                ;;
+            --static=*)
+                BUILD_STATIC="${1#*=}"
+                shift
+                ;;
+            --type=*)
+                BUILD_TYPE="${1#*=}"
+                shift
+                ;;
+            --components=*)
+                COMPONENTS="${1#*=}"
+                shift
+                ;;
             --help)
-                echo "用法: $0 [选项]"
-                echo "选项:"
-                echo "  --version=VERSION    指定 Boost 版本 (默认: ${BOOST_VERSION})"
-                echo "  --jobs=N             指定并行构建作业数量 (默认: 系统核心数)"
-                echo "  --help               显示此帮助信息"
-                exit 0
+                show_help
                 ;;
             *)
                 error "未知选项: $1"
@@ -230,7 +384,15 @@ main() {
     log "- Boost 版本: ${BOOST_VERSION}"
     log "- 安装路径: ${INSTALL_PREFIX}"
     log "- 构建目录: ${BUILD_DIR}"
+    log "- 构建类型: ${BUILD_TYPE}"
+    log "- 构建共享库: ${BUILD_SHARED}"
+    log "- 构建静态库: ${BUILD_STATIC}"
     log "- 并行作业: ${JOBS}"
+    if [ -n "${COMPONENTS}" ]; then
+        log "- 指定组件: ${COMPONENTS}"
+    else
+        log "- 构建所有组件"
+    fi
     
     # 检查是否已经安装
     if [ -d "${INSTALL_PREFIX}" ] && [ -f "${INSTALL_PREFIX}/version.txt" ]; then

@@ -14,6 +14,9 @@
 #include <memory>
 #include <vector>
 
+#include <mysqlx/xdevapi.h>
+
+
 using namespace inf_qwq::utils::rtsp;
 
 std::atomic<bool> g_running{true};
@@ -25,6 +28,21 @@ void signal_handler(int signal) {
 
 void run_inference(std::shared_ptr<chars_ort_inferer> inferer, rtsp_capturer& capturer) {
     try {
+        // 设置结果回调函数
+        inferer->set_completion_callback([](int cam_id, const std::vector<std::string>& texts) {
+            // 在这里处理识别结果
+            std::cout << "Camera ID: " << cam_id << ", Detected texts: ";
+            if (texts.empty()) {
+                std::cout << "None";
+            } else {
+                for (const auto& text : texts) {
+                    std::cout << "\"" << text << "\" ";
+                }
+            }
+            std::cout << std::endl;
+             
+        });
+
         while (g_running) {
             image_batch batch;
             if (capturer.pop_front_batch(batch)) {
@@ -38,6 +56,9 @@ void run_inference(std::shared_ptr<chars_ort_inferer> inferer, rtsp_capturer& ca
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         }
+        
+        // 等待所有推理任务完成
+        inferer->wait_for_completion(5000);  // 5秒超时
     } catch (const std::exception& e) {
         std::cerr << "Inference thread error: " << e.what() << std::endl;
         g_running = false;
@@ -47,7 +68,7 @@ void run_inference(std::shared_ptr<chars_ort_inferer> inferer, rtsp_capturer& ca
 void run_rtsp_capturer(const std::string& capture_dir) {
     try {
         auto& capturer = rtsp_capturer::instance(capture_dir);
-        capturer.set_capture_interval(5);
+        capturer.set_capture_interval(1);
         capturer.set_max_queue_size(200);
         capturer.set_save_to_disk(true);
 
@@ -104,7 +125,7 @@ int main(int argc, char* argv[]) {
         unsigned short port = static_cast<unsigned short>(std::atoi(argv[2]));
 
         auto& capturer = rtsp_capturer::instance("./captures");
-        capturer.set_capture_interval(5);
+        capturer.set_capture_interval(1);
         capturer.set_max_queue_size(200);
         capturer.set_save_to_disk(true);
         capturer.initialize();

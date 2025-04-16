@@ -4,8 +4,13 @@ FILE(GLOB DB_HEADER ${CMAKE_SOURCE_DIR}/include/database/*.h)
 FILE(GLOB DB_TEMPLATE ${CMAKE_SOURCE_DIR}/include/database/*.hpp)
 FILE(GLOB DB_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
+
+
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBPQXX REQUIRED libpqxx)
+
+find_package(MySQL-ConCpp REQUIRED)
 
 
 

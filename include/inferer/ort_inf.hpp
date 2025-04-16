@@ -76,10 +76,11 @@ public:
         m_session_options.SetIntraOpNumThreads(num_cpu_cores / 16);
         m_session_options.SetInterOpNumThreads(1);
         m_session_options.SetExecutionMode(ExecutionMode::ORT_PARALLEL);
-        m_session_options.EnableCpuMemArena();
         m_session_options.EnableMemPattern();
         m_session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
         m_session_options.AddConfigEntry("session.use_device_allocator_for_initializers", "1"); 
+        m_session_options.EnableCpuMemArena();
+        //m_session_options.DisableCpuMemArena();
         m_session = Ort::Session(m_env, model_path.c_str(), m_session_options);
 
 
