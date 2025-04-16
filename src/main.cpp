@@ -16,7 +16,6 @@
 
 #include <mysqlx/xdevapi.h>
 
-
 using namespace inf_qwq::utils::rtsp;
 
 std::atomic<bool> g_running{true};
