@@ -15,7 +15,7 @@ endif()
 
 if (DATABASE STREQUAL "MYSQL")
     find_package(MySQL-ConCpp REQUIRED)
-    add_definitions(-USE_MYSQL)
+    add_definitions(-DUSE_MYSQL)
     message(STATUS "Building with MYSQL support")
 elseif(DATABASE STREQUAL "PGSQL")
     find_package(PkgConfig REQUIRED)
