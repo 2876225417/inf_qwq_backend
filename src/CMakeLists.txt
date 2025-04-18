@@ -24,6 +24,5 @@ target_link_libraries(inf_qwq_backend
     Boost::boost
     ${OpenCV_LIBS}
     onnxruntime::onnxruntime
-    mysql::concpp
 )
 

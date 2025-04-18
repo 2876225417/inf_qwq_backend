@@ -15,7 +15,6 @@ download_onnxruntime()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 find_package(ONNXRuntime REQUIRED)
-find_package(MySQL-ConCpp REQUIRED)
 
 include_directories(
     ${CMAKE_SOURCE_DIR}/include

@@ -14,7 +14,10 @@
 #include <memory>
 #include <vector>
 
+#ifdef USE_MYSQL
 #include <mysqlx/xdevapi.h>
+#endif
+
 
 using namespace inf_qwq::utils::rtsp;
 
@@ -93,7 +96,7 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
     
-    using namespace inf_qwq::database::pg_sql;
+    using namespace inf_qwq::database;
     using namespace inf_qwq::utils::rtsp;
     
     std::shared_ptr<chars_ort_inferer> ort_inferer = std::make_shared<chars_ort_inferer>();

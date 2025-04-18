@@ -13,6 +13,7 @@ add_library(http
     ${HTTP_HEADER}
     ${HTTP_TEMPLATE}
     ${HTTP_SOURCE}
+    ${CMAKE_SOURCE_DIR}/include/json.hpp
 )
 
 

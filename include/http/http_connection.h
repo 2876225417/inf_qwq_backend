@@ -23,7 +23,10 @@
 #include <database/db_ops.hpp>
 
 #include <json.hpp>
+#ifdef USE_PGSQL
 #include <pqxx/internal/statement_parameters.hxx>
+#endif
+
 
 #include <chrono>
 
