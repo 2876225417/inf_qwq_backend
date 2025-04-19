@@ -18,12 +18,14 @@
 #include <functional>
 #include <memory>
 #include <database/db_ops.hpp>
+#ifdef USE_PGSQL
+#include <pqxx/pqxx>
+#endif
 
 namespace inf_qwq {
     namespace utils {
         namespace rtsp { 
-            using namespace database::pg_sql;
-        
+            using namespace inf_qwq::database;
             struct captured_image {
                int rtsp_id;
                 std::string rtsp_name;
@@ -209,6 +211,57 @@ namespace inf_qwq {
                             "FROM rtsp_stream_info "
                             "ORDER BY rtsp_id"; 
                         
+                        #ifdef USE_MYSQL
+                        auto result = execute_query(sql);
+                        
+                        stop_all_streams();
+
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+                            m_streams.clear();
+                        }
+
+                        while (auto row = result.fetchOne()) {
+                            rtsp_stream_info info;
+
+                            info.rtsp_id = row[0].get<int>();
+                            info.rtsp_type = row[1].isNull() ? "" : row[1].get<std::string>();
+                            info.rtsp_username = row[2].get<std::string>();
+                            info.rtsp_ip = row[3].get<std::string>();
+                            info.rtsp_port = row[4].get<int>();
+                            info.rtsp_channel = row[5].get<std::string>();
+                            info.rtsp_subtype = row[6].get<std::string>();
+                            info.rtsp_url = row[7].get<std::string>();
+                            info.rtsp_name = row[8].get<std::string>();
+
+                            if (!row[9].isNull() && 
+                                !row[10].isNull() && 
+                                !row[11].isNull() && 
+                                !row[12].isNull()) {
+                                info.crop_x = row[9].get<int>();
+                                info.crop_y = row[10].get<int>();
+                                info.crop_dx = row[11].get<int>();
+                                info.crop_dy = row[12].get<int>();
+
+                                {
+                                    std::lock_guard<std::mutex> lock(m_mutex);
+                                    m_stream_infos[info.rtsp_id] = info;
+                                }
+                                
+                                std::cout << "Loaded RTSP stream ID=" << info.rtsp_id
+                                          << ", URL=" << info.rtsp_url
+                                          << ", Crop=(" << info.crop_x << "," << info.crop_y
+                                          << "," << info.crop_dx << "," << info.crop_dy << ")"
+                                          << std::endl;
+                                start_stream(info);
+                            } else {
+                                std::cout << "SKipped RTSP stream ID=" << info.rtsp_id
+                                          << " (missing crop coordinates)" << std::endl;
+                            }
+                        }
+                        #endif
+
+                        #ifdef USE_PGSQL
                         pqxx::result result = execute_query(sql); 
                         
                         stop_all_streams();
@@ -258,6 +311,7 @@ namespace inf_qwq {
                                           << " (missing crop coordinates)" << std::endl;
                             }
                         }
+                        #endif
                         return true;
                     } catch (const std::exception& e) {
                         std::cerr << "Database error: " << e.what() << std::endl;

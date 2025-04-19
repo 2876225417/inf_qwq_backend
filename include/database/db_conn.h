@@ -204,7 +204,7 @@ public:
     connection_manager(connection_manager&&) = delete;
     connection_manager& operator=(connection_manager&&) = delete;
 
-    static connection_manager 
+    static connection_manager& 
     get_instance(const connection_config& config = {}) {
         static std::mutex mutex;
         std::lock_guard<std::mutex> lock(mutex);
@@ -217,7 +217,7 @@ public:
         } 
 
         if (!instance.is_initialized() && !config.is_valid()) {
-            throw exception_type("Database connection not is_initialized and no valid configuration provided");
+            throw exception_type(std::string("Database connection not is_initialized and no valid configuration provided"));
         }
         return instance;
     }
@@ -229,19 +229,19 @@ public:
 
     void reconnect() {
         if (!m_config.is_valid()) {
-            throw exception_type("Cannot reconnect with invalid configuration");
+            throw exception_type(std::string("Cannot reconnect with invalid configuration"));
         }
         m_connection = traits::create_connection(m_config);
 
         if (!traits::is_connection_valid(*m_connection)) {
-            throw exception_type("Failed to establish database connection");
+            throw exception_type(std::string("Failed to establish database connection"));
         }
 
         traits::test_connection(*m_connection);
     }
 
     connection_type& get_connection() {
-        if (!m_connection) throw exception_type("Connection not initialized");
+        if (!m_connection) throw exception_type(std::string("Connection not initialized"));
         if (!traits::is_connection_valid(*m_connection)) reconnect();
 
         return *m_connection;

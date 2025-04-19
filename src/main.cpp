@@ -101,15 +101,15 @@ int main(int argc, char* argv[]) {
     
     std::shared_ptr<chars_ort_inferer> ort_inferer = std::make_shared<chars_ort_inferer>();
 
-    conn_config config;
-    config.host = "localhost";
-    config.port = 5432;
-    config.db_name = "inf_qwq";
-    config.user = "ppqwqqq";
-    config.password = "20041025";
+    connection_config config{"localhost", 5432, "inf_qwq", "ppqwqqq", "20041025"};
 
     try {
-        auto& db = pg_sql_conn::get_instance(config);
+        #ifdef USE_MYSQL
+        auto& db = mysql_connection::get_instance(config);
+        #endif
+        #ifdef USE_PGSQL
+        auto& db = pg_connection::get_instance(config);
+        #endif
         if (!db.is_initialized()) {
             std::cerr << "Failed to initialize database connection" << std::endl;
             return EXIT_FAILURE;

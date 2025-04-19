@@ -4,7 +4,6 @@
 #include <database/db_conn.h>
 #include <exception>
 #include <functional>
-
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,7 +25,7 @@ namespace inf_qwq::database {
 #ifdef USE_PGSQL
     inline int execute_non_query(const std::string& sql) {
         try {
-            auto conn = pg_connection::get_instance();
+            auto& conn = pg_connection::get_instance();
             if (!conn.is_initialized()) 
                 throw database_exception(std::string("Database connection not initialized"));
             pqxx::work txn(conn.get_connection());
@@ -43,7 +42,7 @@ namespace inf_qwq::database {
 
     inline pqxx::result execute_query(const std::string& sql) {
         try {
-            auto conn = pg_connection::get_instance();
+            auto& conn = pg_connection::get_instance();
             if (!conn.is_initialized()) 
                 throw database_exception(std::string("Database connection not initialized"));
             pqxx::work txn(conn.get_connection());
@@ -63,7 +62,7 @@ namespace inf_qwq::database {
                                       , Args&&... args
                                       ) {
         try {
-            auto conn = pg_connection::get_instance();
+            auto& conn = pg_connection::get_instance();
             if (!conn.is_initialized()) 
                 throw database_exception(std::string("Database connection not initialized"));
             pqxx::work txn(conn.get_connection());
@@ -81,7 +80,7 @@ namespace inf_qwq::database {
     inline void
     execute_transaction(const std::function<void(pqxx::work&)>& transaction_func) {
         try {
-            auto conn = pg_connection::get_instance();
+            auto& conn = pg_connection::get_instance();
             if (!conn.is_initialized()) 
                 throw database_exception(std::string("Database connection not initialized"));
             pqxx::work txn(conn.get_connection());
@@ -102,7 +101,7 @@ namespace inf_qwq::database {
                 , const Container& data
                 ){
         try {
-            auto conn = pg_connection::get_instance();
+            auto& conn = pg_connection::get_instance();
             if (!conn.is_initialized())
                 throw database_exception(std::string("Database connection not initialized"));
             pqxx::work txn(conn.get_connection());
@@ -139,7 +138,7 @@ namespace inf_qwq::database {
 
     inline bool table_exists(const std::string& table_name) {
         try {
-            auto conn = pg_connection::get_instance();
+            auto& conn = pg_connection::get_instance();
             if (!conn.is_initialized()) 
                 throw database_exception(std::string("Database connection not initialized"));
             pqxx::work txn{conn.get_connection()};
@@ -157,7 +156,7 @@ namespace inf_qwq::database {
     template <typename T>
     inline T get_scalar(const std::string& sql) {
         try {
-            auto conn = pg_connection::get_instance();
+            auto& conn = pg_connection::get_instance();
             if (!conn.is_initialized()) 
                 throw database_exception(std::string("Database connection not initialized"));
             
@@ -176,7 +175,7 @@ namespace inf_qwq::database {
 #ifdef USE_MYSQL
 inline int execute_non_query(const std::string& sql) {
     try {
-        auto conn = mysql_connection::get_instance();
+        auto& conn = mysql_connection::get_instance();
         if (!conn.is_initialized()) 
             throw database_exception(std::string("Database connection not initialized"));
 
@@ -191,7 +190,7 @@ inline int execute_non_query(const std::string& sql) {
 
 inline mysqlx::RowResult execute_query(const std::string& sql) {
     try {
-        auto conn = mysql_connection::get_instance();
+        auto& conn = mysql_connection::get_instance();
         if (!conn.is_initialized()) 
             throw database_exception(std::string("Database connection not initialized"));
         return conn.get_connection().sql(sql).execute();
@@ -202,10 +201,18 @@ inline mysqlx::RowResult execute_query(const std::string& sql) {
     }
 }
 
+inline void bind_params(mysqlx::SqlStatement& stmt) {}
+template <typename T, typename... Args>
+inline void bind_params(mysqlx::SqlStatement& stmt, T&& value, Args&&... args) {
+    stmt.bind(std::forward<T>(value));
+    if constexpr (sizeof...(args) > 0)
+        bind_params(stmt, std::forward<Args>(args)...);
+}
+
 template <typename... Args>
 inline mysqlx::RowResult execute_params(const std::string& sql, Args&&... args) {
     try {
-        auto conn = mysql_connection::get_instance();
+        auto& conn = mysql_connection::get_instance();
         if (!conn.is_initialized()) 
             throw database_exception(std::string("Database connection not initialized"));    
         
@@ -224,16 +231,11 @@ inline mysqlx::RowResult execute_params(const std::string& sql, Args&&... args) 
     }
 }
 
-template <typename T, typename... Args>
-inline void bind_params(mysqlx::SqlStatement& stmt, T&& value, Args&&... args) {
-    stmt.bind(std::forward<T>(value));
-    if constexpr (sizeof...(args) > 0)
-        bind_params(stmt, std::forward<Args>(args)...);
-}
+
 
 inline void execute_transaction(const std::function<void(mysqlx::Session&)>& transaction_func) {
     try {
-        auto conn = mysql_connection::get_instance();
+        auto& conn = mysql_connection::get_instance();
         if (!conn.is_initialized())
             throw database_exception(std::string("Database connection not initialized"));
 
@@ -259,7 +261,7 @@ inline int batch_insert( const std::string& table
                        , const std::vector<std::string>& columns
                        , const Container& data) {
     try {
-        auto conn = mysql_connection::get_instance();
+        auto& conn = mysql_connection::get_instance();
         if (!conn.is_initialized())
             throw database_exception(std::string("Database connection not initialized"));
 
@@ -308,7 +310,7 @@ inline int batch_insert( const std::string& table
 
 inline bool table_exists(const std::string& table_name) {
     try {
-        auto conn = mysql_connection::get_instance();
+        auto& conn = mysql_connection::get_instance();
         if (!conn.is_initialized()) 
             throw database_exception(std::string("Database connection not intialized"));
         
@@ -328,7 +330,7 @@ inline bool table_exists(const std::string& table_name) {
 template <typename T>
 inline T get_scalar(const std::string& sql) {
     try {
-        auto conn = mysql_connection::get_instance();
+        auto& conn = mysql_connection::get_instance();
         if (!conn.is_initialized())
             throw database_exception(std::string("Database connection not initialzied"));
         
@@ -345,6 +347,7 @@ inline T get_scalar(const std::string& sql) {
         throw database_exception("Exception error: " + std::string(e.what()));
     }
 }
+
 
 template <typename T>
 inline std::vector<T> r2vector(mysqlx::RowResult& result, int column_index = 0) {
@@ -365,7 +368,6 @@ inline std::vector<std::vector<T>> r2matrix(mysqlx::RowResult& result) {
     }
     return matrix;
 }
-
 #endif
 }
 
