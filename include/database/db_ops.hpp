@@ -231,8 +231,6 @@ inline mysqlx::RowResult execute_params(const std::string& sql, Args&&... args) 
     }
 }
 
-
-
 inline void execute_transaction(const std::function<void(mysqlx::Session&)>& transaction_func) {
     try {
         auto& conn = mysql_connection::get_instance();

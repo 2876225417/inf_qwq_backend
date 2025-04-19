@@ -11,6 +11,8 @@ set(MySQL-ConCpp_DIR ${CMAKE_SOURCE_DIR}/3rdparty/mysqlconn)
 project(inf_qwq_backend LANGUAGES CXX)
 
 
+set(DATABASE "MYSQL" CACHE STRING "Database backend to use (MYSQL | PGSQL)")
+set_property(CACHE DATABASE PROPERTY STRINGS MYSQL PGSQL)
 
 string(TOUPPER ${DATABASE} DATABASE)
 if(NOT DATABASE MATCHES "^(MYSQL|PGSQL)$")
@@ -27,6 +29,8 @@ elseif (DATABASE STREQUAL "PGSQL")
     add_definitions(-DUSE_PGSQL)
     message(STATUS "Building with PGSQL support")
 endif()
+
+
 
 include("${CMAKE_SOURCE_DIR}/cmake/DownloadONNXRuntime.cmake")
 download_onnxruntime()

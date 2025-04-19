@@ -4,13 +4,6 @@ FILE(GLOB DB_HEADER ${CMAKE_SOURCE_DIR}/include/database/*.h)
 FILE(GLOB DB_TEMPLATE ${CMAKE_SOURCE_DIR}/include/database/*.hpp)
 FILE(GLOB DB_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
-
-set(DATABASE "MYSQL" CACHE STRING "Database backend to use (MYSQL | PGSQL)")
-set_property(CACHE DATABASE PROPERTY STRINGS MYSQL PGSQL)
-
-
-
-
 add_library(db
     SHARED
     ${DB_HEADER}
