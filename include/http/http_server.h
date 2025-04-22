@@ -7,7 +7,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/beast/core/error.hpp>
-#include <http/http_connection.hpp>
+#include <http/http_connection.h>
 #include <memory>
 #include <iostream>
 

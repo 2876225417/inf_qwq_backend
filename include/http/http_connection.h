@@ -76,6 +76,7 @@ namespace inf_qwq::http {
         http_method method;
         api_route route;
     };
+
     template <size_t N>
     struct static_route_table {
         std::array<route_info, N> routes;
@@ -116,17 +117,17 @@ namespace inf_qwq::http {
     void handle_hello(http_connection& conn) { }
     void handle_health_check(http_connection& conn) { }
     void handle_get_all_rtsp_sources(http_connection& conn) { }
-    void handle_add_rtsp_source(http_connection& conn) {}
+    void handle_add_rtsp_source(http_connection& conn) { }
     void handle_not_found(http_connection& conn) { }
 
     using route_handler_func = std::function<void(http_connection&)>;
     const std::unordered_map<api_route, route_handler_func>& get_route_handlers() { 
         static const std::unordered_map<api_route, route_handler_func> handlers = {
-            {api_route::HELLO, handle_hello}, 
-            {api_route::GET_ALL_RTSP_SOURCES, handle_get_all_rtsp_sources},
+            {api_route::HELLO, handle_hello},
             {api_route::HEALTH, handle_health_check},
+            {api_route::GET_ALL_RTSP_SOURCES, handle_get_all_rtsp_sources},
             {api_route::ADD_RTSP_SOURCE, handle_add_rtsp_source},
-            {api_route::UPDATE_CROPPED_COORDS, handle_update_cropped_coords}
+            {api_route::UNKNOWN, handle_not_found}        
         };
         return handlers;
     }
