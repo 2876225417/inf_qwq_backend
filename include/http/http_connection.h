@@ -1,7 +1,7 @@
 #ifndef HTTP_CONNECTION_H
 #define HTTP_CONNECTION_H
 
-#include "http/http_impl.hpp"
+
 #include <database/db_conn.h>
 #include <utility>
 #include <utils/rtsp_capturer.h>
@@ -35,6 +35,7 @@
 #include <mysqlx/xdevapi.h>
 #endif
 
+
 namespace inf_qwq::http {
     using json      = nlohmann::json;
     namespace beast = boost::beast;
@@ -61,7 +62,7 @@ namespace inf_qwq::http {
             default:                    return http_method::UNKNOWN;
         }
     }
-
+    
     enum class api_route {
         HELLO,
         GET_ALL_RTSP_SOURCES,
@@ -120,8 +121,9 @@ namespace inf_qwq::http {
     void handle_add_rtsp_source(http_connection& conn) { }
     void handle_not_found(http_connection& conn) { }
 
+    
     using route_handler_func = std::function<void(http_connection&)>;
-    const std::unordered_map<api_route, route_handler_func>& get_route_handlers() { 
+    const std::unordered_map<api_route, route_handler_func>& get_route_handlers() {
         static const std::unordered_map<api_route, route_handler_func> handlers = {
             {api_route::HELLO, handle_hello},
             {api_route::HEALTH, handle_health_check},

@@ -5,10 +5,32 @@
 
 //#include <http/http_connection.hpp>
 #include <unordered_map>
+#include <boost/beast/http.hpp>
+#include <http/http_connection.h>
 
 namespace inf_qwq::http {
 
 class http_connection;
+
+
+enum class http_method {
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    UNKNOWN
+};
+
+inline http_method enum2method(http::verb method) {
+    switch (method) {
+        case http::verb::get: return http_method::GET;
+        case http::verb::post: return http_method::POST;
+        case http::verb::put: return http_method::PUT;
+        case http::verb::delete_: return http_method::DELETE;
+        default: return http_method::UNKNOWN;
+    }
+}
+
 
     
 // void handle_hello(http_connection& conn);
