@@ -4,6 +4,7 @@ boost-build
 .cache
 OCR_models.tar.gz
 *_server.onnx
-build_bak
+build_bak_1
+
 3rdparty
 clang
