@@ -20,6 +20,10 @@
 
 using namespace inf_qwq::utils::rtsp;
 
+namespace inf_qwq::http{
+std::shared_ptr<chars_ort_inferer> g_ort_inferer;
+}
+
 std::atomic<bool> g_running{true};
 
 void signal_handler(int signal) {
@@ -41,7 +45,7 @@ void run_inference(std::shared_ptr<chars_ort_inferer> inferer, rtsp_capturer& ca
                 }
             }
             std::cout << std::endl;
-             
+
         });
 
         while (g_running) {
@@ -65,6 +69,7 @@ void run_inference(std::shared_ptr<chars_ort_inferer> inferer, rtsp_capturer& ca
         g_running = false;
     }
 }
+
 
 void run_rtsp_capturer(const std::string& capture_dir) {
     try {
@@ -97,8 +102,15 @@ int main(int argc, char* argv[]) {
     
     using namespace inf_qwq::database;
     using namespace inf_qwq::utils::rtsp;
-    
-    std::shared_ptr<chars_ort_inferer> ort_inferer = std::make_shared<chars_ort_inferer>();
+    using namespace inf_qwq::http;
+    g_ort_inferer = std::make_shared<chars_ort_inferer>();
+
+    g_ort_inferer->set_completion_callback([](int cam_id, const std::vector<std::string>& texts) {
+        std::cout << "Camera ID: " << cam_id << ", Detected texts: ";
+        if (texts.empty()) std::cout << "None";
+        else for (const auto& text: texts) std::cout << "\"" << text << "\"";
+        std::cout << std::endl;
+    });
 
     connection_config config{"localhost", 5432, "inf_qwq", "ppqwqqq", "20041025"};
 
@@ -144,12 +156,15 @@ int main(int argc, char* argv[]) {
             }
         });
 
-        std::thread inference_thread(run_inference, ort_inferer, std::ref(capturer));
+        // std::thread inference_thread(run_inference, g_ort_inferer, std::ref(capturer));
 
         while (g_running) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
+
         
+
+
         std::cout << "Stopping all services..." << std::endl;
         ioc.stop();
         
@@ -157,11 +172,11 @@ int main(int argc, char* argv[]) {
             http_thread.join();
         }
         
-        if (inference_thread.joinable()) {
-            inference_thread.join();
-        }
+        // if (inference_thread.joinable()) {
+        //     inference_thread.join();
+        // }
         
-        ort_inferer.reset();  // Explicitly reset the shared_ptr
+        g_ort_inferer.reset();  // Explicitly reset the shared_ptr
 
         std::cout << "All services stopped. Exiting." << std::endl;
     } catch (const std::exception& e) {
@@ -171,4 +186,3 @@ int main(int argc, char* argv[]) {
 
     return EXIT_SUCCESS;
 }
-

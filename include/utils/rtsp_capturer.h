@@ -527,8 +527,6 @@ namespace inf_qwq {
                         std::cerr << "Error saving frame: " << e.what() << std::endl;
                     }
                 }
-
-                               
     
                 std::map<int, rtsp_stream_info> m_stream_infos;
                 std::map<int, stream_runtime> m_streams;

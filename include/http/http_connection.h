@@ -2,7 +2,10 @@
 #define HTTP_CONNECTION_H
 
 
+#include "inferer/chars_ort_inferer.hpp"
 #include <database/db_conn.h>
+#include <future>
+#include <memory>
 #include <utility>
 #include <utils/rtsp_capturer.h>
 #include <json.hpp>
@@ -69,6 +72,7 @@ namespace inf_qwq::http {
         HEALTH,
         ADD_RTSP_SOURCE,
         UPDATE_CROPPED_COORDS,
+        GET_INF_RESULT,
         UNKNOWN
     };
 
@@ -102,6 +106,7 @@ namespace inf_qwq::http {
         {"/inf_qwq/health",                 http_method::GET,   api_route::HEALTH},
         {"/inf_qwq/add_rtsp_source",        http_method::POST,  api_route::ADD_RTSP_SOURCE},
         {"/inf_qwq/update_cropped_coords",  http_method::POST,  api_route::UPDATE_CROPPED_COORDS},
+        {"/inf_qwq/get_inf_result",         http_method::GET,   api_route::GET_INF_RESULT},
     };
     static constexpr auto route_table = static_route_table(route_definitions);
     /* ----Route Table Parser---- */
@@ -121,16 +126,17 @@ namespace inf_qwq::http {
     void handle_add_rtsp_source(http_connection& conn) ;
     void handle_update_cropped_coords(http_connection& conn);
     void handle_not_found(http_connection& conn);
+    void handle_get_inf_result(http_connection& conn);
 
-    
     using route_handler_func = std::function<void(http_connection&)>;
-    const std::unordered_map<api_route, route_handler_func>& get_route_handlers() {
+    inline const std::unordered_map<api_route, route_handler_func>& get_route_handlers() {
         static const std::unordered_map<api_route, route_handler_func> handlers = {
             {api_route::HELLO, handle_hello},
             {api_route::HEALTH, handle_health_check},
             {api_route::GET_ALL_RTSP_SOURCES, handle_get_all_rtsp_sources},
             {api_route::ADD_RTSP_SOURCE, handle_add_rtsp_source},
-            {api_route::UNKNOWN, handle_not_found}        
+            {api_route::GET_INF_RESULT, handle_get_inf_result},
+            {api_route::UNKNOWN, handle_not_found},
         };
         return handlers;
     }
@@ -648,6 +654,127 @@ namespace inf_qwq::http {
                 std::cerr << "Error: " << e.what() << std::endl;
             }  
         }
+
+        using namespace utils::rtsp;
+        inline void handle_get_inf_result(http_connection& conn) {
+            auto& m_response = conn.response();
+            try {
+                auto& capturer = rtsp_capturer::instance();
+                
+                extern std::shared_ptr<chars_ort_inferer> g_ort_inferer;
+                
+                if (!g_ort_inferer) {
+                    nlohmann::json error_json;
+                    error_json["status"] = "error";
+                    error_json["message"] = "Inference engine not initialized";
+                    
+                    m_response.result(http::status::internal_server_error);
+                    m_response.set(http::field::content_type, "application/type");
+                    m_response.body() = error_json.dump();
+                    return;
+                }
+
+                std::promise<std::vector<std::pair<int, std::vector<std::string>>>> result_promise;
+                std::future<std::vector<std::pair<int, std::vector<std::string>>>> result_future = result_promise.get_future();
+
+                auto original_callback = g_ort_inferer->get_completion_callback();
+
+                std::vector<std::pair<int, std::vector<std::string>>> all_results;
+                std::mutex results_mutex;
+                std::atomic<int> completed_count{0};
+                std::atomic<int> expected_count{0};
+
+                g_ort_inferer->set_completion_callback([ &all_results, &results_mutex, &result_promise
+                                                 , &completed_count, &expected_count, &original_callback](int cam_id, const std::vector<std::string>& texts) {
+                                                    if (original_callback) original_callback(cam_id, texts);
+
+                                                    {
+                                                        std::lock_guard<std::mutex> lock(results_mutex);
+                                                        all_results.emplace_back(cam_id, texts);
+                                                    }
+
+                                                    if (++completed_count >= expected_count) {
+                                                        std::lock_guard<std::mutex> lock(results_mutex);
+                                                        result_promise.set_value(all_results);
+                                                    }
+                                                 });
+
+                image_batch batch;
+                if (capturer.pop_front_batch(batch)) {
+                    std::vector<std::pair<int, cv::Mat>> frames;
+                    frames.reserve(batch.images.size());
+                    for (const auto& image: batch.images) 
+                        frames.emplace_back(image.rtsp_id, image.cropped_image.clone());
+                    
+                    expected_count = frames.size();
+                    
+                    if (expected_count == 0) {
+                        nlohmann::json error_json;
+                        error_json["status"] = "error";
+                        error_json["message"] = "Batch contains no images";
+
+                        m_response.result(http::status::service_unavailable);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+
+                        g_ort_inferer->set_completion_callback(original_callback);
+                        return;
+                    }
+                    
+                    g_ort_inferer->run_inf_batch(frames);
+
+                    auto status = result_future.wait_for(std::chrono::seconds(5));
+
+                    g_ort_inferer->set_completion_callback(original_callback);
+
+                    if (status == std::future_status::ready) {
+                        auto results = result_future.get();
+
+                        nlohmann::json response_json;
+                        response_json["status"] = "success";
+                        response_json["results"] = nlohmann::json::array();
+
+                        for (const auto& [cam_id, texts]: results) {
+                            nlohmann::json cam_result;
+                            cam_result["camera_id"] = cam_id;
+                            cam_result["texts"] = texts;
+                            response_json["results"].push_back(cam_result);
+                        }
+
+                        m_response.result(http::status::ok);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = response_json.dump();
+                    } else {
+                        nlohmann::json error_json;
+                        error_json["status"] = "error";
+                        error_json["message"] = "Inference timed out";
+                        
+                        m_response.result(http::status::request_timeout);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = error_json.dump();
+                    }
+                } else {
+                    nlohmann::json error_json;
+                    error_json["status"] = "error";
+                    error_json["message"] = "No images available for inference";
+
+                    m_response.result(http::status::service_unavailable);
+                    m_response.set(http::field::content_type, "application/json");
+                    m_response.body() = error_json.dump();
+                }
+
+                g_ort_inferer->wait_for_completion(5000);
+            } catch (const std::exception& e) {
+                nlohmann::json error_json;
+                error_json["status"] = "error";
+                error_json["message"] = std::string("Inference error") + e.what();
+                
+                m_response.result(http::status::internal_server_error);
+                m_response.set(http::field::content_type, "application/json");
+                m_response.body() = error_json.dump();
+            }
+        }
+
 
         inline void handle_not_found(http_connection& conn) {
 
