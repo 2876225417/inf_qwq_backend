@@ -8,3 +8,7 @@ build_bak_1
 
 3rdparty
 clang
+
+build_*
+*-build
+package

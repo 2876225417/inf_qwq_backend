@@ -7,7 +7,7 @@ set -euo pipefail
 # 配置参数
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENCV_VERSION="4.11.0"
-INSTALL_PREFIX="/usr/local"  # 系统默认安装目录
+INSTALL_PREFIX="./opencv_installation"  # 系统默认安装目录
 BUILD_DIR="${SCRIPT_DIR}/opencv-build"
 SOURCE_DIR="${BUILD_DIR}/source"
 JOBS=$(nproc || sysctl -n hw.ncpu || echo 4)
@@ -129,6 +129,9 @@ build_opencv() {
         "-DWITH_WEBP=ON"
         "-DBUILD_opencv_apps=OFF"
         "-DBUILD_SHARED_LIBS=ON"
+        "-DBUILD_JAVA=OFF"
+        "-DBUILD_opencv_java=OFF"
+        "-DBUILD_opencv_java_bindings_generator=OFF"
         "-DCMAKE_CXX_STANDARD=17"
         "-DCMAKE_C_COMPILER=${CC}"
         "-DCMAKE_CXX_COMPILER=${CXX}"

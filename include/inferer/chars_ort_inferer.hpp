@@ -260,7 +260,6 @@ public:
         return m_completion_callback;
     }
 
-
     ~chars_ort_inferer() {
         m_stop = true;
         if (m_result_check_thread.joinable()) {

@@ -38,17 +38,10 @@ protected:
     Ort::SessionOptions m_session_options;
     Ort::Session m_session;
     
-    // 缓存输入输出名称，避免每次推理都重新获取
     std::string m_input_name;
     std::string m_output_name;
-    
-    // 预分配内存信息
     Ort::MemoryInfo m_memory_info{nullptr};
-    
-    // 输入输出形状缓存
-    std::vector<int64_t> m_last_input_shape;
-    
-    // 预分配的输入tensor值
+    std::vector<int64_t> m_last_input_shape; 
     std::vector<float> m_input_tensor_values;
 
     #ifdef ENABLE_EIGEN
@@ -98,7 +91,6 @@ public:
 
 class det_inferer: public common_inferer<cv::Mat, std::vector<cv::Mat>> {
 private:
-    // 预分配的输出缓冲区
     std::vector<std::vector<cv::Point>> m_boxes_cache;
 
 public:
@@ -319,7 +311,7 @@ public:
     }
 
 public:
-    det_inferer(const std::string& model_path = "det_server.onnx")
+    det_inferer(const std::string& model_path = "det_gen.onnx")
         : common_inferer<cv::Mat, std::vector<cv::Mat>>(model_path) 
         { }
 
@@ -334,7 +326,6 @@ private:
     std::vector<std::string> m_char_dict;
     const int TARGET_HEIGHT = 48;
     
-    // 缓存预处理和后处理结果
     std::vector<int> m_sequence_preds;
     std::vector<std::string> m_result_cache;
 
@@ -476,7 +467,7 @@ private:
 
     inline std::string
     infer(cv::Mat& frame) override {
-        //try {
+        try {
             auto start_preprocess = std::chrono::high_resolution_clock::now();
 
             cv::Mat resized_img;
@@ -490,12 +481,8 @@ private:
             auto end_preprocess = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_preprocess - start_preprocess);
             
-            
-
-            // 准备输入
             std::vector<int64_t> input_shape = {1, 3, resized_img.rows, resized_img.cols};
             
-            // 检查形状是否变化，如果变化则需要重新创建tensor
             bool shape_changed = (m_last_input_shape != input_shape);
             if (shape_changed) {
                 m_last_input_shape = input_shape;
@@ -519,16 +506,16 @@ private:
             auto output_shape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
     
             return postprocess(output_tensor, output_shape, {});
-//         } catch (const Ort::Exception& e) {
-//
-//         } catch (const std::exception& e) {
-//                    }
-//         return {};
-//     }
+        } catch (const Ort::Exception& e) {
+
+        } catch (const std::exception& e) {
+                   }
+        return {};
+    }
     }
     
 public:
-    rec_inferer(const std::string& model_path = "rec_server.onnx")
+    rec_inferer(const std::string& model_path = "rec_gen.onnx")
         : common_inferer<cv::Mat, std::string>(model_path)
         { load_chars("chars.txt"); }
 

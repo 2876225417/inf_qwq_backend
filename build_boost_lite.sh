@@ -7,7 +7,7 @@ set -euo pipefail
 # 配置参数
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOOST_VERSION="1.87.0"
-INSTALL_PREFIX="/usr/local"  # 系统默认安装目录
+INSTALL_PREFIX="./boost_installation"  # 系统默认安装目录
 BUILD_DIR="${SCRIPT_DIR}/boost-build"
 SOURCE_DIR="${BUILD_DIR}/source"
 JOBS=$(nproc || sysctl -n hw.ncpu || echo 4)
