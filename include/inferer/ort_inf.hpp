@@ -512,7 +512,7 @@ private:
                    }
         return {};
     }
-    }
+    
     
 public:
     rec_inferer(const std::string& model_path = "rec_gen.onnx")

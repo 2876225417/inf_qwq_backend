@@ -26,15 +26,15 @@ namespace inf_qwq {
     namespace utils {
         namespace rtsp { 
             using namespace inf_qwq::database;
+            // 捕获帧的信息
             struct captured_image {
-               int rtsp_id;
+                int         rtsp_id;
                 std::string rtsp_name;
-                cv::Mat original_image;
-                cv::Mat cropped_image;
+                cv::Mat     original_image;
+                cv::Mat     cropped_image;
                 std::chrono::system_clock::time_point timestamp;
 
                 captured_image() = default;
-                
                 captured_image( int id
                               , const std::string& name
                               , const cv::Mat& original
@@ -45,41 +45,151 @@ namespace inf_qwq {
                               , original_image(original.clone())
                               , cropped_image(cropped.clone())
                               , timestamp(time) {}
-            
             };
-
+            // 同一时间所获取的所有捕获帧批次
             struct image_batch {
                 std::vector<captured_image> images;
                 std::chrono::system_clock::time_point timestamp;
                 
                 image_batch() = default;
-
                 image_batch( const std::vector<captured_image>& imgs
                            , std::chrono::system_clock::time_point time
                            ):images(imgs)
-                           , timestamp(time) { }
+                           , timestamp(time) {}
             }; 
 
+            // RTSP 视频帧捕获器
             class rtsp_capturer {
             public:
+                /*** 单例实现
+                 *   启动时 (intialize())   
+                 *   获取数据库中的所有 RTSP 数据
+                 *   并尝试启动这些 RTSP 流
+                 */
                 rtsp_capturer(const rtsp_capturer&) = delete;
                 rtsp_capturer& operator=(const rtsp_capturer&) = delete;
 
                 static rtsp_capturer& instance(const std::string& save_dir = "./captures") {
                     static std::mutex mutex;
                     std::lock_guard<std::mutex> lock(mutex);
-
+                    /* 配置文件存储路径 save_dir */
                     static rtsp_capturer instance(save_dir);
                     return instance;
                 }
-
                 void initialize() { 
                     fetch_rtsp_streams_from_db(); 
                     m_batch_thread = std::make_unique<std::thread>([this]() {
                         this->batch_proccessing_thread();
                     }); 
                 }
+                
+                /* 添加 RTSP 流(运行时)*/
+                bool add_rtsp_stream( int rtsp_id
+                                    , const std::string& rtsp_url
+                                    , const std::string& rtsp_name
+                                    , float crop_x = 0.f, float crop_y = 0.f
+                                    , float crop_dx = 1.f, float crop_dy = 1.f
+                                    , const std::string& rtsp_type = ""
+                                    , const std::string& rtsp_username = ""
+                                    , const std::string& rtsp_ip = ""
+                                    , int rtsp_port = 0
+                                    , const std::string& rtsp_channel = ""
+                                    , const std::string& rtsp_subtype = ""
+                                    ) {
+                    std::lock_guard<std::mutex> lock(m_mutex);
 
+                    if (m_stream_infos.find(rtsp_id) != m_stream_infos.end()) {
+                        std::cerr << "RTSP stream ID " << rtsp_id << " already exists\n";
+                        return false;
+                    }
+
+                    rtsp_stream_info info;
+                    info.rtsp_id = rtsp_id;
+                    info.rtsp_url = rtsp_url;
+                    info.rtsp_name = rtsp_name;
+                    info.rtsp_type = rtsp_type;
+                    info.rtsp_username = rtsp_username;
+                    info.rtsp_ip = rtsp_ip;
+                    info.rtsp_port = rtsp_port;
+                    info.rtsp_channel = rtsp_channel;
+                    info.rtsp_subtype = rtsp_subtype;
+                    info.crop_x = crop_x;
+                    info.crop_y = crop_y;
+                    info.crop_dx = crop_dx;
+                    info.crop_dy = crop_dy;
+
+                    m_stream_infos[rtsp_id] = info;
+                    
+                    #define nl '\n'
+                    std::cout << "Added RTSP stream ID=" << rtsp_id << nl
+                              << "URL=" << rtsp_url << nl
+                              << "Name=" << rtsp_name << nl
+                              << "Crop=(" << crop_x << "," << crop_y 
+                              << "," << crop_dx << "," << crop_dy << ")"
+                              << nl;
+                    #undef nl
+
+                    start_stream(info);
+                    return true;
+                }
+
+                /* 移除RTSP流(运行时)*/
+                bool remove_rtsp_stream(int rtsp_id) {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+
+                    if (m_stream_infos.find(rtsp_id) == m_stream_infos.end()) {
+                        std::cerr << "RTSP stream ID " << rtsp_id << "not found" << '\n';
+                        return false;
+                    }
+
+                    if (m_streams.find(rtsp_id) != m_streams.end() &&
+                        m_streams[rtsp_id].is_running) {
+                        m_streams[rtsp_id].stop = true;
+                        if (m_streams[rtsp_id].thread && m_streams[rtsp_id].thread->joinable()) {
+                            m_streams[rtsp_id].thread->join();
+                        }
+                        m_streams.erase(rtsp_id);
+                    }
+
+                    m_stream_infos.erase(rtsp_id);
+                    std::cout << "Remove RTSP stream ID=" << rtsp_id << '\n';
+                    return true;
+                }
+
+                std::vector<captured_image> get_all_latest_images() {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    std::vector<captured_image> images;
+
+                    std::map<int, captured_image> latest_images;
+
+                    {
+                        std::lock_guard<std::mutex> batch_lock(m_batch_queue_mutex);
+                        for (auto it = m_batch_queue.rbegin(); it != m_batch_queue.rend(); ++it) {
+                            for (const auto& img: it->images) {
+                                if (latest_images.find(img.rtsp_id) == latest_images.end())
+                                    latest_images[img.rtsp_id] = img;
+                            }
+                        }
+                    }
+
+                    for (auto& pair: m_stream_infos) {
+                        int rtsp_id = pair.first;
+                        std::lock_guard<std::mutex> img_lock(*pair.second.latest_image_mutex);
+                        
+                        if (pair.second.latest_image.original_image.data) {
+                            if (latest_images.find(rtsp_id) == latest_images.end() || 
+                                pair.second.latest_image.timestamp > latest_images[rtsp_id].timestamp)
+                                latest_images[rtsp_id] = pair.second.latest_image;
+                        }
+                    }
+
+                    for (const auto& [id, img]: latest_images)
+                        images.push_back(img);
+                    
+                    return images;
+                }
+
+                /* 更新截取区域坐标(运行时) */
                 bool update_crop_coordinates(int rtsp_id, float x, float y, float dx, float dy) {
                     std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -98,6 +208,8 @@ namespace inf_qwq {
 
                     return true;
                 }
+
+
 
                 std::vector<image_batch> get_all_batches() {
                     std::lock_guard<std::mutex> lock(m_batch_queue_mutex);
@@ -120,7 +232,6 @@ namespace inf_qwq {
                     m_batch_queue.pop_front();
                     return true;
                 }
-
 
                 bool get_latest_image(int rtsp_id, captured_image& image) {
                     std::lock_guard<std::mutex> lock(m_batch_queue_mutex);

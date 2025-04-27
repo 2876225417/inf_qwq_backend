@@ -12,3 +12,5 @@ clang
 build_*
 *-build
 package
+
+compile_commands.json

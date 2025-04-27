@@ -2,7 +2,7 @@
 #define HTTP_CONNECTION_H
 
 
-#include "inferer/chars_ort_inferer.hpp"
+#include <inferer/chars_ort_inferer.hpp>
 #include <database/db_conn.h>
 #include <future>
 #include <memory>
@@ -73,6 +73,7 @@ namespace inf_qwq::http {
         ADD_RTSP_SOURCE,
         UPDATE_CROPPED_COORDS,
         GET_INF_RESULT,
+        REMOVE_RTSP_STREAM,
         UNKNOWN
     };
 
@@ -107,6 +108,7 @@ namespace inf_qwq::http {
         {"/inf_qwq/add_rtsp_source",        http_method::POST,  api_route::ADD_RTSP_SOURCE},
         {"/inf_qwq/update_cropped_coords",  http_method::POST,  api_route::UPDATE_CROPPED_COORDS},
         {"/inf_qwq/get_inf_result",         http_method::GET,   api_route::GET_INF_RESULT},
+        {"/inf_qwq/remove_rtsp_stream",     http_method::POST,  api_route::REMOVE_RTSP_STREAM},
     };
     static constexpr auto route_table = static_route_table(route_definitions);
     /* ----Route Table Parser---- */
@@ -127,6 +129,7 @@ namespace inf_qwq::http {
     void handle_update_cropped_coords(http_connection& conn);
     void handle_not_found(http_connection& conn);
     void handle_get_inf_result(http_connection& conn);
+    void handle_remove_rtsp_stream(http_connection& conn);
 
     using route_handler_func = std::function<void(http_connection&)>;
     inline const std::unordered_map<api_route, route_handler_func>& get_route_handlers() {
@@ -136,6 +139,7 @@ namespace inf_qwq::http {
             {api_route::GET_ALL_RTSP_SOURCES, handle_get_all_rtsp_sources},
             {api_route::ADD_RTSP_SOURCE, handle_add_rtsp_source},
             {api_route::GET_INF_RESULT, handle_get_inf_result},
+            {api_route::REMOVE_RTSP_STREAM, handle_remove_rtsp_stream},
             {api_route::UNKNOWN, handle_not_found},
         };
         return handlers;
@@ -368,151 +372,165 @@ namespace inf_qwq::http {
             auto& m_response = conn.response();
             auto& m_request = conn.request();
             try {
-                            std::string body = m_request.body();    
-                            auto json = nlohmann::json::parse(body);
-                            // check url existed
-                            std::string rtsp_url = json.value("rtsp_url", "");
-                            if (rtsp_url.empty())
-                                throw std::runtime_error("rtsp_url can not be empty");
-                            
-                            #ifdef USE_MYSQL
-                            auto check_result = execute_params(
-                                "SELECT rtsp_id FROM rtsp_stream_info WHERE rtsp_url = ?",
-                                rtsp_url
-                            );
-        
-                            if (check_result.count() > 0) {
-                                auto row = check_result.fetchOne();
-                                int existing_rtsp_id = row[0].get<int>();
-        
-                                nlohmann::json response_json;
-                                response_json["success"] = false;
-                                response_json["error"]   = "RTSP URL already exists";
-                                response_json["existing_rtsp_id"] = existing_rtsp_id;
-                                response_json["message"] = "A RTSP source with this URL already exists";
-        
-                                m_response.result(http::status::conflict);
-                                m_response.set(http::field::content_type, "application/json");
-                                m_response.body() = response_json.dump();
-                                
-                                std::cout << "RTSP URL already exists with ID: " << existing_rtsp_id << std::endl;
-                            } else {
-                                auto result = execute_params(
-                                    "INSERT INTO rtsp_stream_info ("
-                                    "rtsp_type, rtsp_username, rtsp_ip, rtsp_port, rtsp_channel, "
-                                    "rtsp_subtype, rtsp_url, rtsp_name) "
-                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                    json.value("rtsp_type", ""),
-                                    json.value("rtsp_username", ""),
-                                    json.value("rtsp_ip", ""),
-                                    json.value("rtsp_port", 0),
-                                    json.value("rtsp_channel", ""),
-                                    json.value("rtsp_subtype", ""),
-                                    rtsp_url,
-                                    json.value("rtsp_name", "无")
-                                );
-        
-                                auto id_result = execute_query("SELECT LAST_INSERT_ID()");
-                                auto id_row = id_result.fetchOne();
-                                auto rtsp_id = id_row[0].get<int>();
-        
-                                nlohmann::json response_json;
-                                response_json["success"] = true;
-                                response_json["rtsp_id"] = rtsp_id;
-                                response_json["message"] = "RTSP source added successfully";
-                            
-                                m_response.result(http::status::ok);
-                                m_response.set(http::field::content_type, "application/json");
-                                m_response.body() = response_json.dump();
-        
-                                std::cout << "New RTSP source added with ID: " << rtsp_id << std::endl;
-                            }
-                            #endif
-        
-                            #ifdef USE_PGSQL
-                            std::string check_rtsp_url_existed_sql = 
-                                "SELECT rtsp_id from rtsp_stream_info WHERE rtsp_url = $1";
-                                
-                            pqxx::result check_result = execute_params(check_rtsp_url_existed_sql, rtsp_url);
-                                
-                                if (!check_result.empty()) {
-                                    int existing_rtsp_id = check_result[0][0].as<int>();
-                                
-                                    nlohmann::json response_json;
-                                    response_json["success"] = false;
-                                    response_json["error"] = "RTSP URL already exists";
-                                    response_json["existing_rtsp_id"] = existing_rtsp_id;
-                                    response_json["message"] = "An RTSP source with this URL already exists";
-        
-                                    m_response.result(http::status::conflict);  // 409 conflict
-                                    m_response.set(http::field::content_type, "application/json");
-                                    
-                                    m_response.body() = response_json.dump();
-                                    std::cout << "RTSP URL already exists with ID: " << existing_rtsp_id << std::endl;
-                                } else {
-                            
-                                    std::string sql = 
-                                        "INSERT INTO rtsp_stream_info ("
-                                        "rtsp_type, rtsp_username, rtsp_ip, rtsp_port, rtsp_channel, "
-                                        "rtsp_subtype, rtsp_url, rtsp_name) "
-                                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
-                                        "RETURNING rtsp_id";
-                                
-                                    pqxx::result result = execute_params( sql
-                                                                        , json.value("rtsp_type", "")
-                                                                        , json.value("rtsp_username", "")
-                                                                        , json.value("rtsp_ip", "")
-                                                                        , json.value("rtsp_port", 0)
-                                                                        , json.value("rtsp_channel", "")
-                                                                        , json.value("rtsp_subtype", "")
-                                                                        , rtsp_url
-                                                                        , json.value("rtsp_name", "无")
-                                                                        );
-                                    int rtsp_id = result[0][0].as<int>();
-                                
-                                    // if inserted
-                                    nlohmann::json response_json;
-                                    response_json["successs"] = true;
-                                    response_json["rtsp_id"] = rtsp_id;
-                                    response_json["message"] = "RTSP source added successfully";
-                                
-                                    // response
-                                    m_response.result(http::status::ok);
-                                    m_response.set(http::field::content_type, "application/json");
-                                    m_response.body() = response_json.dump();
-        
-                                    std::cout << "New RTSP source added with ID: " << rtsp_id << std::endl;
-                                }
-                            #endif
-                            } catch (const nlohmann::json::exception& e) {
-                                nlohmann::json error_json;
-                                error_json["success"] = false;
-                                error_json["error"] = "Invalid JSON format: " + std::string(e.what());
-                                
-                                m_response.result(http::status::bad_request);
-                                m_response.set(http::field::content_type, "application/json");
-                                m_response.body() = error_json.dump();
-                                
-                                std::cerr << "JSON parsing error: " << e.what() << std::endl;
-                            } catch (const database_exception& e) {
-                                nlohmann::json error_json;
-                                error_json["success"] = false;
-                                error_json["error"] = "Database error: " + std::string(e.what());
-        
-                                m_response.result(http::status::internal_server_error);
-                                m_response.set(http::field::content_type, "application/json");
-                                m_response.body() = error_json.dump();
-                            } catch (const std::exception& e) {
-                                nlohmann::json error_json;
-                                error_json["success"] = false;
-                                error_json["error"] = "Error: " + std::string(e.what());
-                                
-                                m_response.result(http::status::internal_server_error);
-                                m_response.set(http::field::content_type, "application/json");
-                                m_response.body() = error_json.dump();
-                                
-                                std::cerr << "Error: " << e.what() << std::endl;
-                            } 
+                std::string body = m_request.body();    
+                auto json = nlohmann::json::parse(body);
+                // check url existed
+                std::string rtsp_url = json.value("rtsp_url", "");
+                if (rtsp_url.empty())
+                    throw std::runtime_error("rtsp_url can not be empty");
+                
+                #ifdef USE_MYSQL
+                auto check_result = execute_params(
+                    "SELECT rtsp_id FROM rtsp_stream_info WHERE rtsp_url = ?",
+                    rtsp_url
+                );
+
+                if (check_result.count() > 0) {
+                    auto row = check_result.fetchOne();
+                    int existing_rtsp_id = row[0].get<int>();
+
+                    nlohmann::json response_json;
+                    response_json["success"] = false;
+                    response_json["error"]   = "RTSP URL already exists";
+                    response_json["existing_rtsp_id"] = existing_rtsp_id;
+                    response_json["message"] = "A RTSP source with this URL already exists";
+
+                    m_response.result(http::status::conflict);
+                    m_response.set(http::field::content_type, "application/json");
+                    m_response.body() = response_json.dump();
+                    
+                    std::cout << "RTSP URL already exists with ID: " << existing_rtsp_id << std::endl;
+                } else {
+                    auto result = execute_params(
+                        "INSERT INTO rtsp_stream_info ("
+                        "rtsp_type, rtsp_username, rtsp_ip, rtsp_port, rtsp_channel, "
+                        "rtsp_subtype, rtsp_url, rtsp_name) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        json.value("rtsp_type", ""),
+                        json.value("rtsp_username", ""),
+                        json.value("rtsp_ip", ""),
+                        json.value("rtsp_port", 0),
+                        json.value("rtsp_channel", ""),
+                        json.value("rtsp_subtype", ""),
+                        rtsp_url,
+                        json.value("rtsp_name", "无")
+                    );
+
+                    auto id_result = execute_query("SELECT LAST_INSERT_ID()");
+                    auto id_row = id_result.fetchOne();
+                    auto rtsp_id = id_row[0].get<int>();
+
+                    nlohmann::json response_json;
+                    response_json["success"] = true;
+                    response_json["rtsp_id"] = rtsp_id;
+                    response_json["message"] = "RTSP source added successfully";
+                
+                    m_response.result(http::status::ok);
+                    m_response.set(http::field::content_type, "application/json");
+                    m_response.body() = response_json.dump();
+
+                    std::cout << "New RTSP source added with ID: " << rtsp_id << std::endl;
+                }
+                #endif
+
+                #ifdef USE_PGSQL
+                std::string check_rtsp_url_existed_sql = 
+                    "SELECT rtsp_id from rtsp_stream_info WHERE rtsp_url = $1";
+                    
+                pqxx::result check_result = execute_params(check_rtsp_url_existed_sql, rtsp_url);
+                    
+                    if (!check_result.empty()) {
+                        int existing_rtsp_id = check_result[0][0].as<int>();
+                    
+                        nlohmann::json response_json;
+                        response_json["success"] = false;
+                        response_json["error"] = "RTSP URL already exists";
+                        response_json["existing_rtsp_id"] = existing_rtsp_id;
+                        response_json["message"] = "An RTSP source with this URL already exists";
+
+                        m_response.result(http::status::conflict);  // 409 conflict
+                        m_response.set(http::field::content_type, "application/json");
+                        
+                        m_response.body() = response_json.dump();
+                        std::cout << "RTSP URL already exists with ID: " << existing_rtsp_id << std::endl;
+                    } else {
+                
+                        std::string sql = 
+                            "INSERT INTO rtsp_stream_info ("
+                            "rtsp_type, rtsp_username, rtsp_ip, rtsp_port, rtsp_channel, "
+                            "rtsp_subtype, rtsp_url, rtsp_name, "
+                            "rtsp_crop_coord_x, rtsp_crop_coord_y, rtsp_crop_coord_dx, rtsp_crop_coord_dy) "
+                            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
+                            "RETURNING rtsp_id";
+                    
+                        pqxx::result result = execute_params( sql
+                                                            , json.value("rtsp_type", "")
+                                                            , json.value("rtsp_username", "")
+                                                            , json.value("rtsp_ip", "")
+                                                            , json.value("rtsp_port", 0)
+                                                            , json.value("rtsp_channel", "")
+                                                            , json.value("rtsp_subtype", "")
+                                                            , rtsp_url
+                                                            , json.value("rtsp_name", "无")
+                                                            , 0.f, 0.f, 1.f, 1.f
+                                                            );
+                        int rtsp_id = result[0][0].as<int>();
+                #endif
+                        auto& capturer = utils::rtsp::rtsp_capturer::instance();
+                        bool started = capturer.add_rtsp_stream( rtsp_id, rtsp_url
+                                                               , json.value("rtsp_name", "无")
+                                                               , 0.f, 0.f, 1.f, 1.f
+                                                               , json.value("rtsp_type", "")
+                                                               , json.value("rtsp_username", "")
+                                                               , json.value("rtsp_ip", "")
+                                                               , json.value("rtsp_port", 0)
+                                                               , json.value("rtsp_channel", "")
+                                                               , json.value("rtsp_subtype", "")
+                                                               );
+                        
+                
+                        // if inserted
+                        nlohmann::json response_json;
+                        response_json["successs"] = true;
+                        response_json["rtsp_id"] = rtsp_id;
+                        response_json["message"] = "RTSP source added successfully";
+                        response_json["started"] = started;
+                        // response
+                        m_response.result(http::status::ok);
+                        m_response.set(http::field::content_type, "application/json");
+                        m_response.body() = response_json.dump();
+
+                        std::cout << "New RTSP source added with ID: " << rtsp_id << std::endl;
+                    }
+                } catch (const nlohmann::json::exception& e) {
+                    nlohmann::json error_json;
+                    error_json["success"] = false;
+                    error_json["error"] = "Invalid JSON format: " + std::string(e.what());
+                    
+                    m_response.result(http::status::bad_request);
+                    m_response.set(http::field::content_type, "application/json");
+                    m_response.body() = error_json.dump();
+                    
+                    std::cerr << "JSON parsing error: " << e.what() << std::endl;
+                } catch (const database_exception& e) {
+                    nlohmann::json error_json;
+                    error_json["success"] = false;
+                    error_json["error"] = "Database error: " + std::string(e.what());
+
+                    m_response.result(http::status::internal_server_error);
+                    m_response.set(http::field::content_type, "application/json");
+                    m_response.body() = error_json.dump();
+                } catch (const std::exception& e) {
+                    nlohmann::json error_json;
+                    error_json["success"] = false;
+                    error_json["error"] = "Error: " + std::string(e.what());
+                    
+                    m_response.result(http::status::internal_server_error);
+                    m_response.set(http::field::content_type, "application/json");
+                    m_response.body() = error_json.dump();
+                    
+                    std::cerr << "Error: " << e.what() << std::endl;
+                } 
         }
 
         inline void handle_update_cropped_coords(http_connection& conn) {
@@ -669,100 +687,92 @@ namespace inf_qwq::http {
                     error_json["message"] = "Inference engine not initialized";
                     
                     m_response.result(http::status::internal_server_error);
-                    m_response.set(http::field::content_type, "application/type");
+                    m_response.set(http::field::content_type, "application/json");
                     m_response.body() = error_json.dump();
                     return;
                 }
-
+        
                 std::promise<std::vector<std::pair<int, std::vector<std::string>>>> result_promise;
                 std::future<std::vector<std::pair<int, std::vector<std::string>>>> result_future = result_promise.get_future();
-
+        
                 auto original_callback = g_ort_inferer->get_completion_callback();
-
+        
                 std::vector<std::pair<int, std::vector<std::string>>> all_results;
                 std::mutex results_mutex;
                 std::atomic<int> completed_count{0};
                 std::atomic<int> expected_count{0};
-
+        
                 g_ort_inferer->set_completion_callback([ &all_results, &results_mutex, &result_promise
                                                  , &completed_count, &expected_count, &original_callback](int cam_id, const std::vector<std::string>& texts) {
                                                     if (original_callback) original_callback(cam_id, texts);
-
+        
                                                     {
                                                         std::lock_guard<std::mutex> lock(results_mutex);
                                                         all_results.emplace_back(cam_id, texts);
                                                     }
-
+        
                                                     if (++completed_count >= expected_count) {
                                                         std::lock_guard<std::mutex> lock(results_mutex);
                                                         result_promise.set_value(all_results);
                                                     }
                                                  });
-
-                image_batch batch;
-                if (capturer.pop_front_batch(batch)) {
-                    std::vector<std::pair<int, cv::Mat>> frames;
-                    frames.reserve(batch.images.size());
-                    for (const auto& image: batch.images) 
-                        frames.emplace_back(image.rtsp_id, image.cropped_image.clone());
-                    
-                    expected_count = frames.size();
-                    
-                    if (expected_count == 0) {
-                        nlohmann::json error_json;
-                        error_json["status"] = "error";
-                        error_json["message"] = "Batch contains no images";
-
-                        m_response.result(http::status::service_unavailable);
-                        m_response.set(http::field::content_type, "application/json");
-                        m_response.body() = error_json.dump();
-
-                        g_ort_inferer->set_completion_callback(original_callback);
-                        return;
-                    }
-                    
-                    g_ort_inferer->run_inf_batch(frames);
-
-                    auto status = result_future.wait_for(std::chrono::seconds(5));
-
-                    g_ort_inferer->set_completion_callback(original_callback);
-
-                    if (status == std::future_status::ready) {
-                        auto results = result_future.get();
-
-                        nlohmann::json response_json;
-                        response_json["status"] = "success";
-                        response_json["results"] = nlohmann::json::array();
-
-                        for (const auto& [cam_id, texts]: results) {
-                            nlohmann::json cam_result;
-                            cam_result["camera_id"] = cam_id;
-                            cam_result["texts"] = texts;
-                            response_json["results"].push_back(cam_result);
-                        }
-
-                        m_response.result(http::status::ok);
-                        m_response.set(http::field::content_type, "application/json");
-                        m_response.body() = response_json.dump();
-                    } else {
-                        nlohmann::json error_json;
-                        error_json["status"] = "error";
-                        error_json["message"] = "Inference timed out";
-                        
-                        m_response.result(http::status::request_timeout);
-                        m_response.set(http::field::content_type, "application/json");
-                        m_response.body() = error_json.dump();
-                    }
-                } else {
+    
+                std::vector<captured_image> latest_images = capturer.get_all_latest_images();
+                
+                if (latest_images.empty()) {
                     nlohmann::json error_json;
                     error_json["status"] = "error";
                     error_json["message"] = "No images available for inference";
-
+        
                     m_response.result(http::status::service_unavailable);
                     m_response.set(http::field::content_type, "application/json");
                     m_response.body() = error_json.dump();
+        
+                    g_ort_inferer->set_completion_callback(original_callback);
+                    return;
                 }
-
+                
+                std::vector<std::pair<int, cv::Mat>> frames;
+                frames.reserve(latest_images.size());
+                for (const auto& image : latest_images) {
+                    frames.emplace_back(image.rtsp_id, image.cropped_image.clone());
+                }
+                
+                expected_count = frames.size();
+                
+                g_ort_inferer->run_inf_batch(frames);
+                
+                auto status = result_future.wait_for(std::chrono::seconds(5));
+        
+                g_ort_inferer->set_completion_callback(original_callback);
+        
+                if (status == std::future_status::ready) {
+                    auto results = result_future.get();
+                    
+                    nlohmann::json response_json;
+                    response_json["status"] = "success";
+                    response_json["results"] = nlohmann::json::array();
+        
+                    for (const auto& [cam_id, texts]: results) {
+                        nlohmann::json cam_result;
+                        cam_result["camera_id"] = cam_id;
+                        cam_result["texts"] = texts;
+                        response_json["results"].push_back(cam_result);
+                    }
+        
+                    m_response.result(http::status::ok);
+                    m_response.set(http::field::content_type, "application/json");
+                    m_response.body() = response_json.dump();
+                } else {
+                    nlohmann::json error_json;
+                    error_json["status"] = "error";
+                    error_json["message"] = "Inference timed out";
+        
+                    m_response.result(http::status::request_timeout);
+                    m_response.set(http::field::content_type, "application/json");
+                    m_response.body() = error_json.dump();
+                }
+        
                 g_ort_inferer->wait_for_completion(5000);
             } catch (const std::exception& e) {
                 nlohmann::json error_json;
@@ -775,12 +785,17 @@ namespace inf_qwq::http {
             }
         }
 
+        inline void handle_remove_rtsp_stream(http_connection& conn) {
+
+        }
 
         inline void handle_not_found(http_connection& conn) {
 
         }
 
-        
+    
+
+
 
 
 
