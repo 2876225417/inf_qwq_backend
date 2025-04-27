@@ -7,16 +7,19 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <ctime>
+#include <exception>
 #include <filesystem>
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
+#include <opencv2/videoio.hpp>
 #include <string>
 #include <thread>
 #include <atomic>
 #include <mutex>
 #include <functional>
 #include <memory>
+#include <future>
 #include <database/db_ops.hpp>
 #ifdef USE_PGSQL
 #include <pqxx/pqxx>
@@ -96,41 +99,45 @@ namespace inf_qwq {
                                     , const std::string& rtsp_channel = ""
                                     , const std::string& rtsp_subtype = ""
                                     ) {
-                    std::lock_guard<std::mutex> lock(m_mutex);
+                    try {
+                        std::lock_guard<std::mutex> lock(m_mutex);
 
-                    if (m_stream_infos.find(rtsp_id) != m_stream_infos.end()) {
-                        std::cerr << "RTSP stream ID " << rtsp_id << " already exists\n";
+                        if (m_stream_infos.find(rtsp_id) != m_stream_infos.end()) {
+                            std::cerr << "RTSP stream ID " << rtsp_id << " already exists\n";
+                            return false;
+                        }
+
+                        rtsp_stream_info info;
+                        info.rtsp_id = rtsp_id;
+                        info.rtsp_url = rtsp_url;
+                        info.rtsp_name = rtsp_name;
+                        info.rtsp_type = rtsp_type;
+                        info.rtsp_username = rtsp_username;
+                        info.rtsp_ip = rtsp_ip;
+                        info.rtsp_port = rtsp_port;
+                        info.rtsp_channel = rtsp_channel;
+                        info.rtsp_subtype = rtsp_subtype;
+                        info.crop_x = crop_x;
+                        info.crop_y = crop_y;
+                        info.crop_dx = crop_dx;
+                        info.crop_dy = crop_dy;
+
+                        m_stream_infos[rtsp_id] = info;
+                        
+                        std::cout << "Added RTSP stream ID=" << rtsp_id 
+                                  << "\nURL=" << rtsp_url 
+                                  << "\nName=" << rtsp_name 
+                                  << "\nCrop=(" << crop_x << "," << crop_y 
+                                  << "," << crop_dx << "," << crop_dy << ")"
+                                  << '\n';
+                        
+
+                        start_stream(info);
+                        return true;
+                    } catch (const std::exception& e) {
+                        std::cerr << "Error in add_rtsp_stream: " << e.what() << std::endl;
                         return false;
                     }
-
-                    rtsp_stream_info info;
-                    info.rtsp_id = rtsp_id;
-                    info.rtsp_url = rtsp_url;
-                    info.rtsp_name = rtsp_name;
-                    info.rtsp_type = rtsp_type;
-                    info.rtsp_username = rtsp_username;
-                    info.rtsp_ip = rtsp_ip;
-                    info.rtsp_port = rtsp_port;
-                    info.rtsp_channel = rtsp_channel;
-                    info.rtsp_subtype = rtsp_subtype;
-                    info.crop_x = crop_x;
-                    info.crop_y = crop_y;
-                    info.crop_dx = crop_dx;
-                    info.crop_dy = crop_dy;
-
-                    m_stream_infos[rtsp_id] = info;
-                    
-                    #define nl '\n'
-                    std::cout << "Added RTSP stream ID=" << rtsp_id << nl
-                              << "URL=" << rtsp_url << nl
-                              << "Name=" << rtsp_name << nl
-                              << "Crop=(" << crop_x << "," << crop_y 
-                              << "," << crop_dx << "," << crop_dy << ")"
-                              << nl;
-                    #undef nl
-
-                    start_stream(info);
-                    return true;
                 }
 
                 /* 移除RTSP流(运行时)*/
@@ -202,7 +209,8 @@ namespace inf_qwq {
                     m_stream_infos[rtsp_id].crop_y = y;
                     m_stream_infos[rtsp_id].crop_dx = dx;
                     m_stream_infos[rtsp_id].crop_dy = dy;
-                
+                    
+
                     std::cout << "Updated crop coordinates for RTSP ID " << rtsp_id
                               << ": (" << x << "," << y << "," << dx << "," << dy << ")" << std::endl;
 
@@ -440,113 +448,340 @@ namespace inf_qwq {
                                 pair.second.thread->join();
                             }
                         }
-                    }
-                    
+                    }    
                     m_streams.clear();
                 }
 
-                
-                void start_stream(const rtsp_stream_info& info) {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    
-                    if (m_streams.find(info.rtsp_id) != m_streams.end() &&
-                        m_streams[info.rtsp_id].is_running) return;
-                    
-                    stream_runtime& runtime = m_streams[info.rtsp_id];
-                    runtime.rtsp_id = info.rtsp_id;
-                    runtime.stop = false;
 
-                    if (!runtime.capturer.open(info.rtsp_url)) {
-                        std::cerr << "Failed to open RTSP stream: " <<info.rtsp_url << std::endl;
+                void start_stream(const rtsp_stream_info& info) {
+    int rtsp_id = info.rtsp_id;
+    std::string rtsp_url = info.rtsp_url;
+    
+    std::cout << "Starting stream for RTSP ID=" << rtsp_id << " URL=" << rtsp_url << std::endl;
+    
+    // 在外部创建VideoCapture，避免在锁内执行耗时操作
+    auto cap_ptr = std::make_shared<cv::VideoCapture>();
+    
+    try {
+        bool should_start = false;
+        bool has_existing_thread = false;
+        std::unique_ptr<std::thread> thread_to_join;
+        
+        {
+            std::cout << "Acquiring lock for RTSP ID=" << rtsp_id << std::endl;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            std::cout << "Lock acquired for RTSP ID=" << rtsp_id << std::endl;
+            
+            // 检查流是否已存在
+            auto it = m_streams.find(rtsp_id);
+            if (it != m_streams.end()) {
+                std::cout << "Stream exists for RTSP ID=" << rtsp_id << ", is_running=" 
+                          << (it->second.is_running ? "true" : "false") << std::endl;
+                
+                if (it->second.is_running) {
+                    std::cout << "RTSP stream ID=" << rtsp_id << " is already running, skipping" << std::endl;
+                    return;  // 流已经在运行，不需要重新启动
+                } else {
+                    std::cout << "RTSP stream ID=" << rtsp_id << " exists but not running, resetting it" << std::endl;
+                    
+                    // 如果有线程需要join，移动到外部变量，在锁外join
+                    if (it->second.thread && it->second.thread->joinable()) {
+                        it->second.stop = true;
+                        thread_to_join = std::move(it->second.thread);
+                        has_existing_thread = true;
+                    } else {
+                        it->second.capturer.release();
+                    }
+                }
+            }
+            
+            // 如果没有线程需要join，初始化runtime
+            if (!has_existing_thread) {
+                stream_runtime& runtime = m_streams[rtsp_id];
+                runtime.rtsp_id = rtsp_id;
+                runtime.stop = false;
+                runtime.is_running = false;
+                should_start = true;
+                
+                std::cout << "Initialized runtime for RTSP ID=" << rtsp_id << std::endl;
+            }
+        }
+        
+        // 如果有线程需要join，在锁外执行
+        if (has_existing_thread && thread_to_join) {
+            std::cout << "Joining existing thread for RTSP ID=" << rtsp_id << std::endl;
+            
+            // 设置超时，避免无限等待
+            auto future = std::async(std::launch::async, [&thread_to_join]() {
+                if (thread_to_join && thread_to_join->joinable()) {
+                    thread_to_join->join();
+                }
+            });
+            
+            // 等待join完成，最多5秒
+            if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+                std::cerr << "Joining thread timed out for RTSP ID=" << rtsp_id << ", detaching instead" << std::endl;
+                if (thread_to_join && thread_to_join->joinable()) {
+                    thread_to_join->detach();
+                }
+            } else {
+                std::cout << "Successfully joined thread for RTSP ID=" << rtsp_id << std::endl;
+            }
+            
+            // 现在可以安全地初始化runtime了
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                if (m_streams.find(rtsp_id) != m_streams.end()) {
+                    stream_runtime& runtime = m_streams[rtsp_id];
+                    runtime.rtsp_id = rtsp_id;
+                    runtime.stop = false;
+                    runtime.is_running = false;
+                    runtime.capturer.release();  // 确保释放旧的capturer
+                    should_start = true;
+                    
+                    std::cout << "Initialized runtime after joining thread for RTSP ID=" << rtsp_id << std::endl;
+                }
+            }
+        }
+        
+        if (should_start) {
+            std::cout << "Starting opener thread for RTSP ID=" << rtsp_id << std::endl;
+            
+            // 创建一个分离线程来打开RTSP流
+            std::thread opener([this, rtsp_id, rtsp_url, cap_ptr]() {
+                std::cout << "Opener thread started for RTSP ID=" << rtsp_id << std::endl;
+                
+                try {
+                    // 设置打开超时
+                    #if CV_VERSION_MAJOR >= 3
+                    cap_ptr->set(cv::CAP_PROP_OPEN_TIMEOUT_MSEC, 5000);  // 5秒超时
+                    #endif
+                    
+                    std::cout << "Attempting to open RTSP URL: " << rtsp_url << " for ID=" << rtsp_id << std::endl;
+                    
+                    // 使用超时机制打开RTSP流
+                    std::atomic<bool> open_completed{false};
+                    std::atomic<bool> open_success{false};
+                    
+                    // 创建一个线程来执行打开操作
+                    std::thread open_thread([&cap_ptr, &rtsp_url, &open_completed, &open_success]() {
+                        try {
+                            open_success = cap_ptr->open(rtsp_url);
+                            open_completed = true;
+                        } catch (const cv::Exception& e) {
+                            std::cerr << "OpenCV exception when opening RTSP stream: " << e.what() << std::endl;
+                            open_completed = true;
+                        } catch (const std::exception& e) {
+                            std::cerr << "Exception when opening RTSP stream: " << e.what() << std::endl;
+                            open_completed = true;
+                        }
+                    });
+                    
+                    // 等待打开完成或超时
+                    {
+                        auto start_time = std::chrono::steady_clock::now();
+                        const int timeout_seconds = 10;  // 10秒超时
+                        
+                        while (!open_completed) {
+                            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                                std::chrono::steady_clock::now() - start_time).count();
+                            
+                            if (elapsed >= timeout_seconds) {
+                                std::cerr << "Open operation timed out after " << elapsed 
+                                          << " seconds for RTSP ID=" << rtsp_id << std::endl;
+                                break;
+                            }
+                            
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                        }
+                    }
+                    
+                    // 如果线程还在运行，分离它
+                    if (open_thread.joinable()) {
+                        if (open_completed) {
+                            open_thread.join();
+                        } else {
+                            std::cerr << "Detaching open thread for RTSP ID=" << rtsp_id << std::endl;
+                            open_thread.detach();
+                            return;  // 超时，退出
+                        }
+                    }
+                    
+                    if (!open_success) {
+                        std::cerr << "Failed to open RTSP stream: " << rtsp_url << " for ID=" << rtsp_id << std::endl;
                         return;
                     }
                     
-                    runtime.thread = std::make_unique<std::thread>([this, id = info.rtsp_id]() {
-                        this->capture_thread(id);
-                    });
+                    std::cout << "Successfully opened RTSP stream for ID=" << rtsp_id << std::endl;
                     
-                    runtime.is_running = true;
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        
+                        if (m_streams.find(rtsp_id) == m_streams.end()) {
+                            std::cerr << "RTSP stream ID: " << rtsp_id << " was removed while opening" << std::endl;
+                            return;
+                        }
+                        
+                        stream_runtime& runtime = m_streams[rtsp_id];
+                        
+                        // 检查是否有旧线程需要清理
+                        if (runtime.thread && runtime.thread->joinable()) {
+                            std::cerr << "Warning: Thread still exists for RTSP ID=" << rtsp_id 
+                                      << ", marking it to stop" << std::endl;
+                            runtime.stop = true;
+                            // 不在锁内join，避免死锁
+                        }
+                        
+                        runtime.capturer = std::move(*cap_ptr);
+                        
+                        std::cout << "Creating capture thread for RTSP ID=" << rtsp_id << std::endl;
+                        
+                        try {
+                            runtime.thread = std::make_unique<std::thread>([this, id = rtsp_id]() {
+                                std::cout << "Capture thread started for RTSP ID=" << id << std::endl;
+                                this->capture_thread(id); 
+                            });
+                            
+                            runtime.is_running = true;
+                            std::cout << "Started RTSP stream ID=" << rtsp_id << std::endl;
+                        } catch (const std::exception& e) {
+                            std::cerr << "Failed to create capture thread for RTSP stream ID " 
+                                      << rtsp_id << ": " << e.what() << std::endl;
+                            runtime.capturer.release();
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Error in opener thread for RTSP ID " << rtsp_id << ": " << e.what() << std::endl;
                 }
+                
+                std::cout << "Opener thread completed for RTSP ID=" << rtsp_id << std::endl;
+            });
+            
+            std::cout << "Detaching opener thread for RTSP ID=" << rtsp_id << std::endl;
+            opener.detach();
+        }
+        
+        std::cout << "Exiting start_stream for RTSP ID=" << rtsp_id << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Exception in start_stream for RTSP ID=" << rtsp_id << ": " << e.what() << std::endl;
+    }
+}
 
                 void capture_thread(int rtsp_id) {
                     stream_runtime* runtime = nullptr;
                     rtsp_stream_info* info = nullptr;
                     std::string rtsp_url;
-                    {
+                    try {
                         std::lock_guard<std::mutex> lock(m_mutex);
                         if (m_streams.find(rtsp_id) == m_streams.end() || 
-                            m_stream_infos.find(rtsp_id) == m_stream_infos.end()) return;
+                            m_stream_infos.find(rtsp_id) == m_stream_infos.end()) {
+                            std::cerr << "RTSP stream ID " << rtsp_id << " not found in capture_thread" << std::endl;
+                            return;
+                        }
                         runtime = &m_streams[rtsp_id];
                         info = &m_stream_infos[rtsp_id];
                         rtsp_url = info->rtsp_url;
+                    } catch (const std::exception& e) {
+                        std::cerr << "Error intializing capture thread: " << e.what() << std::endl;
+                        return;
                     }
 
                     auto last_capture_time = std::chrono::steady_clock::now();
-                    
-                    while (!runtime->stop) {
-                        cv::Mat frame;
-                        
-                        if (!runtime->capturer.read(frame)) {
-                            std::cerr << "Failed to read frame from RTSP stream ID " << rtsp_id << std::endl;
+                    int consecutive_failures = 0;
+                    const int max_failures = 10;
 
-                            std::this_thread::sleep_for(std::chrono::seconds(1));            
-                            {
-                                std::lock_guard<std::mutex> lock(m_mutex);
-                                runtime->capturer.release();
-                                
-                                if (!runtime->capturer.open(info->rtsp_url)) {
-                                    std::cerr << "Failed to reconnect to RTSP stream ID " << rtsp_id << std::endl;
+                    while (!runtime->stop) {
+                        try {
+                            cv::Mat frame;
+                            bool read_success = false;
+                            
+                            try {
+                                read_success = runtime->capturer.read(frame);
+                            } catch (const cv::Exception& e) {
+                                std::cerr << "OpenCV exception reading frame: " << e.what() << std::endl;
+                            } catch (const std::exception& e) {
+                                std::cerr << "Exception reading frame: " << e.what() << std::endl;
+                            }
+
+                            if (!read_success) {
+                                std::cerr << "Failed to read frame from RTSP stream ID " << rtsp_id << std::endl;
+                                consecutive_failures++;
+
+                                if (consecutive_failures > max_failures) {
+                                    std::cerr << "Too many consecutive failures, stopping RTSP stream ID " << rtsp_id << std::endl;
                                     break;
                                 }
-                            }
-                            continue;
-                        }
-                        if (frame.empty()) {
-                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                            continue;
-                        }
 
-                        auto now = std::chrono::steady_clock::now();
-                        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_capture_time).count();
+                                std::this_thread::sleep_for(std::chrono::seconds(1));            
+                                try {
+                                    std::lock_guard<std::mutex> lock(m_mutex);
+                                    runtime->capturer.release();
+                                
+                                    #if CV_VERSION_MAJOR >= 3
+                                    runtime->capturer.set(cv::CAP_PROP_OPEN_TIMEOUT_MSEC, 5000);
+                                    #endif
+
+                                    if (!runtime->capturer.open(info->rtsp_url)) {
+                                        std::cerr << "Failed to reconnect to RTSP stream ID " << rtsp_id << std::endl;
+                                        break;
+                                    }
+                                } catch (const std::exception& e) {
+                                    std::cerr << "Error reconnecting to stream: " << e.what() << std::endl;
+                                }
+                                continue;
+                            } consecutive_failures = 0;
+
+                            if (frame.empty()) {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                                continue;
+                            }
+
+                            auto now = std::chrono::steady_clock::now();
+                            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_capture_time).count();
                     
-                        if (elapsed >= m_capture_interval) {
-                            float crop_x, crop_y, crop_dx, crop_dy;
-                            
-                            std::string rtsp_name;
+                            if (elapsed >= m_capture_interval) {
+                                float crop_x, crop_y, crop_dx, crop_dy;  
+                                std::string rtsp_name;
 
-                            {
-                                std::lock_guard<std::mutex> lock(m_mutex);
-                                crop_x = info->crop_x;
-                                crop_y = info->crop_y;
-                                crop_dx = info->crop_dx;
-                                crop_dy = info->crop_dy;
-                                rtsp_name = info->rtsp_name;
-                            }
+                                {
+                                    std::lock_guard<std::mutex> lock(m_mutex);
+                                    crop_x = info->crop_x;
+                                    crop_y = info->crop_y;
+                                    crop_dx = info->crop_dx;
+                                    crop_dy = info->crop_dy;
+                                    rtsp_name = info->rtsp_name;
+                                }
                             
-                            cv::Mat cropped_frame = crop_frame(frame, crop_x, crop_y, crop_dx, crop_dy);
+                                cv::Mat cropped_frame = crop_frame(frame, crop_x, crop_y, crop_dx, crop_dy);
                         
-                            auto capture_time = std::chrono::system_clock::now(); 
-                            captured_image captured(rtsp_id, rtsp_name, frame, cropped_frame, capture_time);
-                            {
-                                std::lock_guard<std::mutex> lock(*info->latest_image_mutex);
-                                info->latest_image = captured;
-                                info->has_new_image = true;
+                                auto capture_time = std::chrono::system_clock::now(); 
+                                captured_image captured(rtsp_id, rtsp_name, frame, cropped_frame, capture_time);
+                                {
+                                    std::lock_guard<std::mutex> lock(*info->latest_image_mutex);
+                                    info->latest_image = captured;
+                                    info->has_new_image = true;
+                                }
+                            
+                                m_batch_cv.notify_one();
+                                if (m_save_to_disk)
+                                    save_frame(rtsp_id, cropped_frame, capture_time);
+                                last_capture_time = now;
                             }
-                            
-                            m_batch_cv.notify_one();
-                            
-                            if (m_save_to_disk)
-                                save_frame(rtsp_id, cropped_frame, capture_time);
-                            last_capture_time = now;
+                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                        } catch (const std::exception& e) {
+                            std::cerr << "Error in capture thread for RTSP ID " << rtsp_id << ": " << e.what() << std::endl;
+                            std::this_thread::sleep_for(std::chrono::seconds(1)); 
                         }
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     }
                     
-                    {
+                    try {
                         std::lock_guard<std::mutex> lock(m_mutex);
                         runtime->capturer.release();
                         runtime->is_running = false;
-                    } 
+                        std::cout << "RTSP stream ID " << rtsp_id << " stopped" << std::endl;
+                    }  catch (const std::exception& e) {
+                        std::cerr << "Error stopping stream: " << e.what() << std::endl;
+                    }
                 }
 
                 void batch_proccessing_thread() {
