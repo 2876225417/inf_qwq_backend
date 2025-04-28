@@ -469,7 +469,7 @@ namespace inf_qwq {
         
         {
             std::cout << "Acquiring lock for RTSP ID=" << rtsp_id << std::endl;
-            std::lock_guard<std::mutex> lock(m_mutex);
+            //std::lock_guard<std::mutex> lock(m_mutex);
             std::cout << "Lock acquired for RTSP ID=" << rtsp_id << std::endl;
             
             // 检查流是否已存在
